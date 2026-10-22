@@ -281,6 +281,7 @@ public final class GhostTextOverlayWindow {
         if let field = placement.fieldRect,
            !field.isEmpty,
            field.height >= 40,
+           isApproximateCaretQuality(placement.cursorRectQuality), // TYLER-GHOSTSIZE-2026-10-22: exact caret heights are trusted
            caretHeight >= field.height * 0.65 {
             return max(8, min(32, fallbackLineHeight))
         }

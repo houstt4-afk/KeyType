@@ -33,6 +33,12 @@ struct StoredWritingSample: Codable, FetchableRecord, MutablePersistableRecord {
     var updatedAt: Date
     var hasAcceptedCompletion: Bool
     var charCount: Int
+    var selectedText: String?
+    var textAfterCursor: String?
+    var windowTitle: String?
+    var screenText: String?
+    var screenshotData: Data?
+    var originDeviceID: String?
 
     static let databaseTableName = "writingSample"
 
@@ -51,6 +57,12 @@ struct StoredWritingSample: Codable, FetchableRecord, MutablePersistableRecord {
         self.updatedAt = sample.updatedAt
         self.hasAcceptedCompletion = sample.hasAcceptedCompletion
         self.charCount = sample.text.count
+        self.selectedText = sample.selectedText
+        self.textAfterCursor = sample.textAfterCursor
+        self.windowTitle = sample.windowTitle
+        self.screenText = sample.screenText
+        self.screenshotData = sample.screenshotData
+        self.originDeviceID = sample.originDeviceID
     }
 
     var asSample: WritingHistorySample {
@@ -62,7 +74,13 @@ struct StoredWritingSample: Codable, FetchableRecord, MutablePersistableRecord {
             language: language,
             createdAt: createdAt,
             updatedAt: updatedAt,
-            hasAcceptedCompletion: hasAcceptedCompletion
+            hasAcceptedCompletion: hasAcceptedCompletion,
+            selectedText: selectedText,
+            textAfterCursor: textAfterCursor,
+            windowTitle: windowTitle,
+            screenText: screenText,
+            screenshotData: screenshotData,
+            originDeviceID: originDeviceID
         )
     }
 }
@@ -142,7 +160,29 @@ public final class PersistentWritingHistoryStore: WritingHistoryStoring, @unchec
                 columns: ["appBundleIdentifier", "updatedAt"]
             )
         }
+        migrator.registerMigration("v2-richer-context") { db in
+            try db.alter(table: StoredWritingSample.databaseTableName) { t in
+                t.add(column: "selectedText", .text)
+                t.add(column: "textAfterCursor", .text)
+                t.add(column: "windowTitle", .text)
+                t.add(column: "screenText", .text)
+                t.add(column: "screenshotData", .blob)
+                t.add(column: "originDeviceID", .text)
+            }
+        }
         return migrator
+    }
+
+    /// TYLER-SYNC-2026-10-22: rows changed after `date`, oldest first (used by `HistorySync`).
+    public func samplesUpdated(after date: Date, limit: Int) -> [WritingHistorySample] {
+        (try? dbQueue.read { db in
+            try StoredWritingSample
+                .filter(Column("updatedAt") > date)
+                .order(Column("updatedAt"))
+                .limit(limit)
+                .fetchAll(db)
+                .map(\.asSample)
+        }) ?? []
     }
 
     // MARK: - Recording
@@ -265,5 +305,17 @@ enum WritingHistorySelection {
             tokens += cost
         }
         return result
+    }
+}
+
+enum WritingHistorySampleBridge {
+    static func make(text: String, app: String?, domain: String?, typingContext: String?, language: String?,
+                     createdAt: Date, updatedAt: Date, accepted: Bool, selectedText: String?, after: String?,
+                     windowTitle: String?, screenText: String?, screenshot: Data?, origin: String?) -> WritingHistorySample {
+        WritingHistorySample(text: text, appBundleIdentifier: app, domain: domain, typingContext: typingContext,
+                             language: language, createdAt: createdAt, updatedAt: updatedAt,
+                             hasAcceptedCompletion: accepted, selectedText: selectedText, textAfterCursor: after,
+                             windowTitle: windowTitle, screenText: screenText, screenshotData: screenshot,
+                             originDeviceID: origin)
     }
 }

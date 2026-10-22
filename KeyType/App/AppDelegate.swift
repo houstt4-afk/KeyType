@@ -115,7 +115,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             tracker: tracker,
             store: history,
             settings: settings,
-            compatibilityStore: compatibilityStore
+            compatibilityStore: compatibilityStore,
+            screenTextProvider: screenContext.screenTextProvider
         )
         super.init()
         completion.shouldSuppressForCorrection = { [weak correction] context in
@@ -254,7 +255,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         permissionSyncTimer = timer
     }
 
+    private var historySync: HistorySync? // TYLER-SYNC-2026-10-22
+    private var lastHistorySync = Date.distantPast
+
+    private func runHistorySyncIfDue() {
+        guard settings.historyEnabled, settings.historySyncEnabled,
+              Date().timeIntervalSince(lastHistorySync) > 300,
+              let persistent = history as? PersistentWritingHistoryStore else { return }
+        lastHistorySync = Date()
+        let sync = historySync ?? HistorySync(store: persistent)
+        historySync = sync
+        DispatchQueue.global(qos: .utility).async { _ = try? sync.syncOnce() }
+    }
+
     private func syncContextCaptureWithPermission() {
+        runHistorySyncIfDue()
         // Don't resurrect the AX pipeline while an open panel is up — see `isPresentingOpenPanel`.
         guard !isTerminating, !isPresentingOpenPanel else { return }
         let inputMethodEnabled = inputMethods.isKeyTypeEnabledForSelectedInputMethod

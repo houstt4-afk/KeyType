@@ -5,7 +5,7 @@ import XCTest
 final class RuntimeModelCatalogTests: XCTestCase {
 
     func testCatalogHasSixCuratedBaseModels() {
-        XCTAssertEqual(RuntimeModelCatalog.allModels.count, 6)
+        XCTAssertEqual(RuntimeModelCatalog.allModels.count, 9)
     }
 
     func testFilenamesAreUnique() {

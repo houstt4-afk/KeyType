@@ -27,6 +27,33 @@ struct PrivacySettingsView: View {
                             .foregroundStyle(.secondary)
                     }
                 }
+                Toggle(isOn: $settings.historyStoreScreenText) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Save on-screen text with each history entry")
+                        Text("Keeps the window title and screen text (when OCR is on) next to what you typed, encrypted on this Mac.")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .disabled(!settings.historyEnabled)
+                Toggle(isOn: $settings.historyStoreScreenshot) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Save a screenshot with each history entry")
+                        Text("Off by default. Keeps a compressed picture of the window, encrypted on this Mac. It can contain anything on screen; needs OCR and Screen Recording.")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .disabled(!settings.historyEnabled || !settings.ocrEnabled)
+                Toggle(isOn: $settings.historySyncEnabled) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Sync history between my Macs through iCloud Drive")
+                        Text("Off by default. Entries are encrypted before they reach iCloud; the key travels through iCloud Keychain. Needs iCloud Drive on both Macs.")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .disabled(!settings.historyEnabled)
                 Toggle(isOn: $settings.clipboardEnabled) {
                     VStack(alignment: .leading, spacing: 2) {
                         Text("Use clipboard as context")

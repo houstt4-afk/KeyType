@@ -25,6 +25,7 @@ final class WritingHistoryRecorder {
     private let store: WritingHistoryStoring
     private let settings: SettingsStore
     private let compatibilityStore: AppCompatibilityStore
+    private let screenTextProvider: ScreenTextProviding // TYLER-HISTORY-2026-10-22
     private let log = Logger(subsystem: "com.pattonium.KeyType", category: "history-recorder")
 
     /// Minimum characters before a field's text is worth keeping as a sample.
@@ -48,8 +49,10 @@ final class WritingHistoryRecorder {
         tracker: AccessibilityContextTracker,
         store: WritingHistoryStoring,
         settings: SettingsStore,
-        compatibilityStore: AppCompatibilityStore = KeyTypeModuleGraph.makeCompatibilityStore()
+        compatibilityStore: AppCompatibilityStore = KeyTypeModuleGraph.makeCompatibilityStore(),
+        screenTextProvider: ScreenTextProviding = NullScreenTextProvider()
     ) {
+        self.screenTextProvider = screenTextProvider
         self.tracker = tracker
         self.store = store
         self.settings = settings
@@ -106,7 +109,12 @@ final class WritingHistoryRecorder {
                 appBundleIdentifier: context.target.bundleIdentifier,
                 domain: context.target.domain,
                 typingContext: context.typingContext,
-                language: context.detectedLanguage
+                language: context.detectedLanguage,
+                selectedText: context.selection.selectedText,
+                textAfterCursor: context.afterCursor.isEmpty ? nil : context.afterCursor,
+                windowTitle: context.target.windowTitle,
+                screenText: settings.historyStoreScreenText ? screenTextProvider.latestScreenText : nil,
+                screenshotData: settings.historyStoreScreenshot ? ScreenshotStash.shared.latestJPEG : nil
             )
         )
         scheduleIdleCommit()

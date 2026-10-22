@@ -107,6 +107,7 @@ public struct ScreenCaptureKitWindowTextCapturer: ScreenWindowTextCapturing {
         let filter = SCContentFilter(desktopIndependentWindow: window)
         let image = try await SCScreenshotManager.captureImage(contentFilter: filter, configuration: configuration)
 
+        ScreenshotStash.shared.store(image)
         let lines = try await ScreenTextOCR.recognizeLines(in: image)
         // Drop corrupted/garbled recognitions before they can reach the prompt (the model otherwise
         // parrots OCR noise like "Ilne wilh real 5ulfix"). See ADR-049.

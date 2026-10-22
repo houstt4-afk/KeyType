@@ -31,10 +31,27 @@ struct AppsSettingsView: View {
                         .foregroundStyle(.secondary)
                 }
                 ForEach(listedApps) { app in
-                    Toggle(app.name, isOn: Binding(
-                        get: { settings.isAppEnabled(app.bundleIdentifier) },
-                        set: { settings.setApp(app.bundleIdentifier, enabled: $0) }
-                    ))
+                    HStack {
+                        Toggle(app.name, isOn: Binding(
+                            get: { settings.isAppEnabled(app.bundleIdentifier) },
+                            set: { settings.setApp(app.bundleIdentifier, enabled: $0) }
+                        ))
+                        Picker("Length", selection: Binding(
+                            get: { settings.perAppCompletionLength[app.bundleIdentifier] ?? "default" },
+                            set: { newValue in
+                                if newValue == "default" {
+                                    settings.perAppCompletionLength.removeValue(forKey: app.bundleIdentifier)
+                                } else {
+                                    settings.perAppCompletionLength[app.bundleIdentifier] = newValue
+                                }
+                            }
+                        )) {
+                            Text("Default").tag("default")
+                            ForEach(CompletionLength.allCases) { Text($0.title).tag($0.rawValue) }
+                        }
+                        .labelsHidden()
+                        .frame(width: 110)
+                    } // TYLER-PERAPP-2026-10-22
                 }
 
                 HStack(spacing: 8) {

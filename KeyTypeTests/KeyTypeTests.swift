@@ -260,7 +260,8 @@ struct KeyTypeTests {
     }
 
     @Test func explicitLongLengthRetainsExtendedBudget() {
-        #expect(CompletionLength.long.maxCompletionTokens == 16)
+        #expect(CompletionLength.long.maxCompletionTokens == 32)
+        #expect(CompletionLength.long.maxDisplayWidth == 200)
     }
 
     @Test func burstAwareBudgetCapsCancellationProneLongRequest() {
@@ -492,6 +493,20 @@ struct KeyTypeTests {
 
         #expect(reloaded.manualPerAppDisplayNames["com.example.MenuBar"] == "MenuBar")
         #expect(!reloaded.isAppEnabled("com.example.MenuBar"))
+    }
+
+    @Test @MainActor func aboutMePersistsAndLeadsCustomInstructions() {
+        let (defaults, suiteName) = Self.temporaryDefaults()
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let store = SettingsStore(defaults: defaults)
+        #expect(store.completionLength == .long)
+        #expect(store.promptCustomInstructions(appInstructions: ["app"], systemLocaleIdentifier: "en_US", preferredLanguages: ["en-US"]) == ["app"])
+
+        store.aboutMe = "  I am Tyler, a medical student.  "
+        let reloaded = SettingsStore(defaults: defaults)
+        #expect(reloaded.promptCustomInstructions(appInstructions: ["app"], systemLocaleIdentifier: "en_US", preferredLanguages: ["en-US"])
+            == ["I am Tyler, a medical student.", "app"])
     }
 
     @Test @MainActor func inputMethodsDefaultOnAndPersistExplicitDisable() {

@@ -77,6 +77,48 @@ public enum RuntimeModelCatalog {
             availability: .available
         ),
         DownloadableRuntimeModel(
+            displayName: "Qwen3 0.6B Base",
+            detail: "Tiny and very fast. Same tokenizer as Qwen3.5.",
+            filename: "Qwen3-0.6B-Base.i1-Q4_K_M.gguf",
+            tokenizerFamily: qwenFamily,
+            approximateSizeLabel: "~0.4 GB",
+            expectedSizeBytes: nil,
+            sha256: nil,
+            downloadURL: huggingFaceURL(
+                repo: "mradermacher/Qwen3-0.6B-Base-i1-GGUF",
+                file: "Qwen3-0.6B-Base.i1-Q4_K_M.gguf"
+            ),
+            availability: .available
+        ), // TYLER-MODELS-2026-10-22
+        DownloadableRuntimeModel(
+            displayName: "Qwen3 1.7B Base",
+            detail: "Small and quick, a step up from 0.6B.",
+            filename: "Qwen3-1.7B-Base.i1-Q4_K_M.gguf",
+            tokenizerFamily: qwenFamily,
+            approximateSizeLabel: "~1.1 GB",
+            expectedSizeBytes: nil,
+            sha256: nil,
+            downloadURL: huggingFaceURL(
+                repo: "mradermacher/Qwen3-1.7B-Base-i1-GGUF",
+                file: "Qwen3-1.7B-Base.i1-Q4_K_M.gguf"
+            ),
+            availability: .available
+        ), // TYLER-MODELS-2026-10-22
+        DownloadableRuntimeModel(
+            displayName: "Qwen3 4B Base",
+            detail: "Stronger writing, slower per token.",
+            filename: "Qwen3-4B-Base.i1-Q4_K_M.gguf",
+            tokenizerFamily: qwenFamily,
+            approximateSizeLabel: "~2.5 GB",
+            expectedSizeBytes: nil,
+            sha256: nil,
+            downloadURL: huggingFaceURL(
+                repo: "mradermacher/Qwen3-4B-Base-i1-GGUF",
+                file: "Qwen3-4B-Base.i1-Q4_K_M.gguf"
+            ),
+            availability: .available
+        ), // TYLER-MODELS-2026-10-22
+        DownloadableRuntimeModel(
             displayName: "Gemma 4 E2B",
             detail: "Google Gemma base model, compact effective-2B variant.",
             filename: "gemma-4-E2B.i1-Q6_K.gguf",

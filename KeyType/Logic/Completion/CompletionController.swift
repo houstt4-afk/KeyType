@@ -274,6 +274,7 @@ final class CompletionController {
     private let settings: SettingsStore
     private let history: WritingHistoryStoring
     private let screenTextProvider: ScreenTextProviding
+    private let dailyStats = DailyCompletionStats(url: DailyCompletionStats.defaultURL())
     private let telemetry: CompletionTelemetryStore
     private let presenter: InlineGhostTextPresenter
     private let placementResolver: OverlayPlacementResolver
@@ -766,7 +767,7 @@ final class CompletionController {
         let healSlack = heal?.heal.count ?? 0
         let healExtraTokens = healSlack > 0 ? 1 : 0
         // Completion length is user-configurable (Settings) and maps to the decoder's token/width budget.
-        let length = settings.completionLength
+        let length = settings.completionLength(for: context.target.bundleIdentifier)
         let configuredMaxCompletionTokens = Self.contextAwareCompletionTokenBudget(
             baseMaxCompletionTokens: length.maxCompletionTokens,
             healExtraTokens: healExtraTokens,
@@ -2104,6 +2105,7 @@ final class CompletionController {
         let (head, rest) = NextWordSplitter.split(text)
         guard !head.isEmpty else { return }
         telemetry.recordAccepted()
+        dailyStats.recordAcceptance(characters: head.count, isFull: false) // TYLER-DAILYSTATS-2026-10-22
         predictionLog.append(
             "ACCEPT(word) \"\(PredictionLog.escape(head))\" of \"\(PredictionLog.escape(text))\""
         )
@@ -2133,6 +2135,7 @@ final class CompletionController {
     func acceptFullCompletion() {
         guard canAcceptCompletion, let (text, context) = insertionText() else { return }
         telemetry.recordAccepted()
+        dailyStats.recordAcceptance(characters: text.count, isFull: true)
         predictionLog.append("ACCEPT(full) \"\(PredictionLog.escape(text))\"")
         insert(text: text, context: context)
     }

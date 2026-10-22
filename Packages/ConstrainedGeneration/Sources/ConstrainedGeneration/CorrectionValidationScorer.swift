@@ -9,8 +9,8 @@ public struct CorrectionValidationThresholds: Equatable, Sendable {
     public var priorPredictionConfidence: Double
 
     public init(
-        minimumMeanLogProbability: Double = -6.0,
-        minimumMargin: Double = 0.20,
+        minimumMeanLogProbability: Double = -9.0, // TYLER-CORRECT-2026-10-22: was -6.0
+        minimumMargin: Double = 0.05, // TYLER-CORRECT-2026-10-22: was 0.20; real typos (receice, yiu, wutg) were all suppressed
         minimumSuffixMeanLogProbability: Double = -7.0,
         priorPredictionConfidence: Double = 0.97
     ) {

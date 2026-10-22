@@ -178,6 +178,13 @@ final class PermissionsManager {
         return global.bool(forKey: key)
     }
 
+    /// TYLER-INLINEPRED-2026-10-22: Cotypist parity. Turns macOS's own grey "inline predictive text"
+    /// off for all apps. Only ever called from an explicit button press in Settings.
+    static func disableSystemInlinePrediction() {
+        UserDefaults(suiteName: "NSGlobalDomain")?.set(false, forKey: "NSAutomaticInlinePredictionEnabled")
+        UserDefaults.standard.synchronize()
+    }
+
     private func openSettings(pane: String) {
         // Documented x-apple.systempreferences scheme for the Privacy & Security panes.
         guard let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?\(pane)") else {

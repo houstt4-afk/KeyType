@@ -12,6 +12,13 @@ public struct WritingHistorySample: Equatable {
     public var createdAt: Date
     public var updatedAt: Date
     public var hasAcceptedCompletion: Bool
+    // TYLER-HISTORY-2026-10-22: richer per-event context (Cotypist user_inputs parity)
+    public var selectedText: String?
+    public var textAfterCursor: String?
+    public var windowTitle: String?
+    public var screenText: String?
+    public var screenshotData: Data?
+    public var originDeviceID: String?
 
     public init(
         text: String,
@@ -21,7 +28,13 @@ public struct WritingHistorySample: Equatable {
         language: String? = nil,
         createdAt: Date = Date(),
         updatedAt: Date? = nil,
-        hasAcceptedCompletion: Bool = false
+        hasAcceptedCompletion: Bool = false,
+        selectedText: String? = nil,
+        textAfterCursor: String? = nil,
+        windowTitle: String? = nil,
+        screenText: String? = nil,
+        screenshotData: Data? = nil,
+        originDeviceID: String? = nil
     ) {
         self.text = text
         self.appBundleIdentifier = appBundleIdentifier
@@ -31,6 +44,12 @@ public struct WritingHistorySample: Equatable {
         self.createdAt = createdAt
         self.updatedAt = updatedAt ?? createdAt
         self.hasAcceptedCompletion = hasAcceptedCompletion
+        self.selectedText = selectedText
+        self.textAfterCursor = textAfterCursor
+        self.windowTitle = windowTitle
+        self.screenText = screenText
+        self.screenshotData = screenshotData
+        self.originDeviceID = originDeviceID
     }
 }
 

@@ -11,6 +11,7 @@
 
 import AutocompleteCore
 import Foundation
+import MacContextCapture
 import Observation
 
 /// Completion length presets, mapped to the decoder's token/width budget.
@@ -34,7 +35,7 @@ enum CompletionLength: String, CaseIterable, Identifiable {
         switch self {
         case .short: return 4
         case .medium: return 4
-        case .long: return 16
+        case .long: return 32 // TYLER-LONG-2026-10-22: was 16; sentence-length predictions
         }
     }
 
@@ -43,7 +44,7 @@ enum CompletionLength: String, CaseIterable, Identifiable {
         switch self {
         case .short: return 30
         case .medium: return 60
-        case .long: return 120
+        case .long: return 200 // TYLER-LONG-2026-10-22: was 120
         }
     }
 }
@@ -103,13 +104,18 @@ enum EnglishVariant {
 @Observable
 final class SettingsStore {
     private enum Key {
+        static let perAppLength = "KeyType.settings.perAppCompletionLength" // TYLER-PERAPP-2026-10-22
+        static let historyStoreScreenshot = "KeyType.settings.historyStoreScreenshot" // TYLER-SCREENSHOT-2026-10-22
+        static let historySync = "KeyType.settings.historySyncEnabled" // TYLER-SYNC-2026-10-22
         static let historyEnabled = "KeyType.settings.historyEnabled"
+        static let historyStoreScreenText = "KeyType.settings.historyStoreScreenText" // TYLER-HISTORY-2026-10-22
         static let clipboardEnabled = "KeyType.settings.clipboardEnabled"
         static let ocrEnabled = "KeyType.settings.ocrEnabled"
         static let screenshotCalibrationEnabled = "KeyType.settings.screenshotCalibrationEnabled"
         static let fullPromptLoggingEnabled = "KeyType.settings.fullPromptLoggingEnabled"
         static let developerOverrideTuningEnabled = "KeyType.settings.developerOverrideTuningEnabled"
         static let completionLength = "KeyType.settings.completionLength"
+        static let aboutMe = "KeyType.settings.aboutMe" // TYLER-ABOUTME-2026-10-22
         static let selectedModelFilename = "KeyType.settings.selectedModelFilename"
         static let perAppDisabled = "KeyType.settings.perAppDisabledBundleIDs"
         static let manualPerAppDisplayNames = "KeyType.settings.manualPerAppDisplayNames"
@@ -131,6 +137,21 @@ final class SettingsStore {
     private let defaults: UserDefaults
 
     /// Persist recent typing locally (encrypted) to personalize completions. ON by default.
+    var historySyncEnabled: Bool {
+        didSet { defaults.set(historySyncEnabled, forKey: Key.historySync) }
+    }
+
+    var historyStoreScreenshot: Bool {
+        didSet {
+            defaults.set(historyStoreScreenshot, forKey: Key.historyStoreScreenshot)
+            ScreenshotStash.shared.isEnabled = historyStoreScreenshot
+        }
+    }
+
+    var historyStoreScreenText: Bool {
+        didSet { defaults.set(historyStoreScreenText, forKey: Key.historyStoreScreenText) }
+    }
+
     var historyEnabled: Bool {
         didSet { defaults.set(historyEnabled, forKey: Key.historyEnabled) }
     }
@@ -160,8 +181,25 @@ final class SettingsStore {
         didSet { defaults.set(developerOverrideTuningEnabled, forKey: Key.developerOverrideTuningEnabled) }
     }
 
+    /// Per-app length overrides (bundle id → CompletionLength raw value). Missing = use the global one.
+    var perAppCompletionLength: [String: String] {
+        didSet { defaults.set(perAppCompletionLength, forKey: Key.perAppLength) }
+    }
+
+    func completionLength(for bundleIdentifier: String?) -> CompletionLength {
+        guard let id = bundleIdentifier, let raw = perAppCompletionLength[id],
+              let value = CompletionLength(rawValue: raw) else { return completionLength }
+        return value
+    }
+
     var completionLength: CompletionLength {
         didSet { defaults.set(completionLength.rawValue, forKey: Key.completionLength) }
+    }
+
+    /// Free-text "about me" writing style (name, voice, vocabulary) added to every prompt's
+    /// custom-instructions section. TYLER-ABOUTME-2026-10-22.
+    var aboutMe: String {
+        didSet { defaults.set(aboutMe, forKey: Key.aboutMe) }
     }
 
     /// Chosen GGUF filename in the Models directory, or `nil` to use the app default.
@@ -213,14 +251,20 @@ final class SettingsStore {
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
+        self.perAppCompletionLength = (defaults.dictionary(forKey: Key.perAppLength) as? [String: String]) ?? [:]
         self.historyEnabled = Self.bool(defaults, forKey: Key.historyEnabled, defaultValue: true)
+        self.historyStoreScreenshot = Self.bool(defaults, forKey: Key.historyStoreScreenshot, defaultValue: false)
+        ScreenshotStash.shared.isEnabled = Self.bool(defaults, forKey: Key.historyStoreScreenshot, defaultValue: false)
+        self.historySyncEnabled = Self.bool(defaults, forKey: Key.historySync, defaultValue: false)
+        self.historyStoreScreenText = Self.bool(defaults, forKey: Key.historyStoreScreenText, defaultValue: true)
         self.clipboardEnabled = Self.bool(defaults, forKey: Key.clipboardEnabled, defaultValue: true)
         self.ocrEnabled = defaults.bool(forKey: Key.ocrEnabled)
         self.screenshotCalibrationEnabled = defaults.bool(forKey: Key.screenshotCalibrationEnabled)
         self.fullPromptLoggingEnabled = defaults.bool(forKey: Key.fullPromptLoggingEnabled)
         self.developerOverrideTuningEnabled = defaults.bool(forKey: Key.developerOverrideTuningEnabled)
         self.completionLength = (defaults.string(forKey: Key.completionLength))
-            .flatMap(CompletionLength.init(rawValue:)) ?? .medium
+            .flatMap(CompletionLength.init(rawValue:)) ?? .long // TYLER-LONG-2026-10-22: default was .medium
+        self.aboutMe = defaults.string(forKey: Key.aboutMe) ?? ""
         self.selectedModelFilename = defaults.string(forKey: Key.selectedModelFilename)
         self.perAppDisabled = Set(defaults.stringArray(forKey: Key.perAppDisabled) ?? [])
         self.manualPerAppDisplayNames =
@@ -319,6 +363,10 @@ final class SettingsStore {
         preferredLanguages: [String] = Locale.preferredLanguages
     ) -> [String] {
         var instructions = appInstructions
+        let about = aboutMe.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !about.isEmpty {
+            instructions.insert(about, at: 0)
+        }
         if let instruction = EnglishVariant.promptInstruction(
             systemLocaleIdentifier: systemLocaleIdentifier,
             preferredLanguages: preferredLanguages

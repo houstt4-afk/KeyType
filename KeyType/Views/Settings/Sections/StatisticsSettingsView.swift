@@ -51,6 +51,24 @@ struct StatisticsSettingsView: View {
                 )
             }
 
+            Section("Accepted per day") { // TYLER-DAILYSTATS-2026-10-22
+                let days = DailyCompletionStats(url: DailyCompletionStats.defaultURL()).load()
+                if days.isEmpty {
+                    Text("Nothing accepted yet. Press Tab on a suggestion to start counting.")
+                        .foregroundStyle(.secondary)
+                } else {
+                    ForEach(days.keys.sorted(by: >).prefix(14), id: \.self) { key in
+                        let day = days[key] ?? .init()
+                        HStack {
+                            Text(key)
+                            Spacer()
+                            Text("\(day.shortAccepted) words · \(day.longAccepted) full · \(day.characters) characters")
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                }
+            }
+
             Section("End-to-end latency") {
                 let e2e = snapshot.endToEnd
                 let totalsDetail = e2e.sampleCount > 0
