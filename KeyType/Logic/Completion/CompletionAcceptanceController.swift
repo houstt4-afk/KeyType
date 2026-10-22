@@ -149,6 +149,7 @@ final class CompletionAcceptanceController {
         // than waiting for the slower AX value-changed snapshot — unless the user is typing the
         // suggested characters, in which case the controller keeps it and lets the pipeline shrink it
         // in place. See ADR-037.
+        correctionController?.noteUserKeyDown() // GEMINI-REVIEW-2026-10-22: stop stale fix detection
         completionController?.dismissStaleCompletion(
             mutation: textMutation(keyCode: keyCode, flags: flags, event: event)
         )

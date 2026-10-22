@@ -552,6 +552,49 @@ final class PersonalizationTests: XCTestCase {
         XCTAssertLessThanOrEqual(a.minBranchProbabilityScale, ThresholdTuner.maxProbabilityScale)
     }
 
+    // MARK: - Sync ownership (GEMINI-REVIEW-2026-10-22)
+
+    func testLocalSamplesUpdatedSkipsPulledRowsInSQL() throws {
+        let (store, url) = try makeTempStore()
+        defer { try? FileManager.default.removeItem(at: url) }
+        for i in 0..<5 {
+            store.record(WritingHistorySample(text: "Pulled from another Mac number \(i).",
+                                              appBundleIdentifier: "com.app", originDeviceID: "other-mac"))
+        }
+        store.record(WritingHistorySample(text: "Typed on this Mac, needs pushing.", appBundleIdentifier: "com.app"))
+        let local = store.localSamplesUpdated(after: .distantPast, limit: 2)
+        XCTAssertEqual(local.map(\.text), ["Typed on this Mac, needs pushing."])
+    }
+
+    func testRecordKeepsNewestUpdatedAtAndTakesLocalOwnership() throws {
+        let (store, url) = try makeTempStore()
+        defer { try? FileManager.default.removeItem(at: url) }
+        let text = "The same sentence typed on two Macs."
+        let newer = Date(timeIntervalSince1970: 2_000_000)
+        let older = Date(timeIntervalSince1970: 1_000_000)
+        store.record(WritingHistorySample(text: text, appBundleIdentifier: "com.app",
+                                          createdAt: older, updatedAt: newer, originDeviceID: "other-mac"))
+        // An older pulled copy must not rewind the timestamp.
+        store.record(WritingHistorySample(text: text, appBundleIdentifier: "com.app",
+                                          createdAt: older, updatedAt: older, originDeviceID: "other-mac"))
+        var rows = store.samplesUpdated(after: .distantPast, limit: 10)
+        XCTAssertEqual(rows.first?.updatedAt, newer)
+        XCTAssertTrue(store.localSamplesUpdated(after: .distantPast, limit: 10).isEmpty)
+        // Typing it again locally takes ownership so it will be pushed.
+        store.record(WritingHistorySample(text: text, appBundleIdentifier: "com.app"))
+        rows = store.localSamplesUpdated(after: .distantPast, limit: 10)
+        XCTAssertEqual(rows.map(\.text), [text])
+    }
+
+    func testSyncDigestIsStableAndPlaceholderNamesResolve() {
+        XCTAssertEqual(HistorySync.digest("hello"), HistorySync.digest("hello"))
+        XCTAssertNotEqual(HistorySync.digest("hello"), HistorySync.digest("hello!"))
+        XCTAssertEqual(HistorySync.digest("hello").count, 16)
+        XCTAssertEqual(HistorySync.placeholderTarget(".123-abc.ksync.icloud"), "123-abc.ksync")
+        XCTAssertNil(HistorySync.placeholderTarget("123-abc.ksync"))
+        XCTAssertNil(HistorySync.placeholderTarget(".notes.txt.icloud"))
+    }
+
     // MARK: - Keychain
 
     func testKeychainPassphraseRoundTripIfAvailable() throws {

@@ -174,6 +174,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func clearAllPersonalData() {
         history.clearAll()
         telemetry.clearAll()
+        // GEMINI-REVIEW-2026-10-22: also wipe the per-day counts, the stashed screenshot, and this
+        // Mac's iCloud sync files, so the next sync doesn't re-upload or re-import cleared history.
+        DailyCompletionStats.shared.clearAll()
+        ScreenshotStash.shared.clear()
+        guard let persistent = history as? PersistentWritingHistoryStore else { return }
+        let sync = historySync ?? HistorySync(store: persistent)
+        historySync = sync
+        DispatchQueue.global(qos: .utility).async {
+            sync.resetAfterLocalClear() // waits for an in-flight sync to finish first
+            persistent.clearAll()       // drop anything that in-flight sync imported meanwhile
+        }
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {

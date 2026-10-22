@@ -1,6 +1,6 @@
 import AppCompatibility
 import AutocompleteCore
-import ConstrainedGeneration
+@testable import ConstrainedGeneration
 import XCTest
 
 /// Covers the full `SuppressionReason` taxonomy through `DefaultCandidateFilter` (M6). Pure and
@@ -517,5 +517,37 @@ private extension CompletionCandidate {
         var copy = self
         copy.logProbability = value
         return copy
+    }
+}
+
+/// GEMINI-REVIEW-2026-10-22: wider repetition net.
+final class CandidateFilterRepetitionTests: XCTestCase {
+    func testCatchesEchoOfPromptTail() {
+        XCTAssertTrue(DefaultCandidateFilter.isRepetitive(
+            " medical school next year",
+            beforeCursor: "I am studying hard so I can get into"
+        ) == false, "continuing after the tail is not an echo")
+        XCTAssertTrue(DefaultCandidateFilter.isRepetitive(
+            " and so I can get into the program",
+            beforeCursor: "I am studying hard so I can get into"
+        ))
+    }
+
+    func testAllowsShortReusedPhrase() {
+        XCTAssertFalse(DefaultCandidateFilter.isRepetitive(" of work to do", beforeCursor: "There is a lot of noise and a lot"))
+    }
+
+    func testCatchesTwoWordAlternation() {
+        XCTAssertTrue(DefaultCandidateFilter.isRepetitive(" yes no yes no yes no"))
+    }
+
+    func testCatchesCJKLoop() {
+        XCTAssertTrue(DefaultCandidateFilter.isRepetitive("我们我们我们我们我们我们"))
+        XCTAssertFalse(DefaultCandidateFilter.isRepetitive("今天天气很好我们去公园散步吧"))
+    }
+
+    func testOrdinaryProseIsNotRepetitive() {
+        XCTAssertFalse(DefaultCandidateFilter.isRepetitive(" and I will send the notes tomorrow morning"))
+        XCTAssertFalse(DefaultCandidateFilter.isRepetitive(" Mississippi"))
     }
 }

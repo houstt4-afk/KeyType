@@ -274,7 +274,7 @@ final class CompletionController {
     private let settings: SettingsStore
     private let history: WritingHistoryStoring
     private let screenTextProvider: ScreenTextProviding
-    private let dailyStats = DailyCompletionStats(url: DailyCompletionStats.defaultURL())
+    private let dailyStats = DailyCompletionStats.shared // GEMINI-REVIEW-2026-10-22: one locked instance per file
     private let telemetry: CompletionTelemetryStore
     private let presenter: InlineGhostTextPresenter
     private let placementResolver: OverlayPlacementResolver
@@ -392,19 +392,26 @@ final class CompletionController {
         var pasteboardText: String?
         var screenText: String?
         var lastUsedAt: Date
+        /// GEMINI-REVIEW-2026-10-22: expiry counts from when the context was built, not from its last
+        /// use; a sliding window never expired during steady typing, so the similar-history pick made
+        /// on the first keystroke (before any words existed) was reused for the whole field.
+        var createdAt: Date
+        var hadSimilarityWords: Bool
 
         func canReuse(
             fieldKey: String,
             historyEnabled: Bool,
             clipboardEnabled: Bool,
             ocrEnabled: Bool,
+            hasSimilarityWords: Bool,
             now: Date
         ) -> Bool {
             self.fieldKey == fieldKey
                 && self.historyEnabled == historyEnabled
                 && self.clipboardEnabled == clipboardEnabled
                 && self.ocrEnabled == ocrEnabled
-                && now.timeIntervalSince(lastUsedAt) <= CompletionController.sideContextFreezeInterval
+                && (hadSimilarityWords || !hasSimilarityWords)
+                && now.timeIntervalSince(createdAt) <= CompletionController.sideContextFreezeInterval
         }
     }
 
@@ -824,6 +831,11 @@ final class CompletionController {
         generationTask = inferenceTasks.start { [weak self] in
             guard let self else { return }
             do {
+                // GEMINI-REVIEW-2026-10-22: wait out the debounce BEFORE decoding. With the burst stage
+                // gone (TYLER-NOBURST) every keystroke used to start a full-length GPU decode that the
+                // next keystroke threw away; now only the request that survives the pause decodes.
+                try await debounceGate.value
+                try Task.checkCancellation()
                 latencyTrace.eventGenerationBegin()
                 let start = DispatchTime.now()
                 let candidates = try await engine.completions(for: request)
@@ -832,8 +844,6 @@ final class CompletionController {
                 latencyTrace.eventGenerationEnd(elapsedMs: elapsedMs, candidateCount: candidates.count)
                 self.lastGenerationLatencyMs = elapsedMs
                 self.telemetry.recordLatency(milliseconds: elapsedMs)
-                try await debounceGate.value
-                try Task.checkCancellation()
                 self.present(candidates, request: request, style: style, latencyTrace: latencyTrace)
             } catch is CancellationError {
                 debounceGate.cancel()
@@ -985,7 +995,16 @@ final class CompletionController {
 
         // TYLER-FALLTHROUGH-2026-10-22: take the best candidate that passes the safety filter, so a
         // punctuation-only top pick (".") no longer hides a usable runner-up (" why they are small").
-        guard let best = candidates.first(where: { filter.suppressionReason(for: $0, request: request) == nil })
+        // GEMINI-REVIEW-2026-10-22: the pick must also survive healing/boundary reconciliation;
+        // `anchorText(applyingFilter: true)` checks both, so a runner-up is tried instead of
+        // suppressing the turn as `emptyAfterBoundary`.
+        let usable = candidates.lazy
+            .compactMap { candidate in
+                self.anchorText(for: candidate, request: request, applyingFilter: true).map { (candidate, $0) }
+            }
+            .first
+        guard let best = usable?.0
+                ?? candidates.first(where: { filter.suppressionReason(for: $0, request: request) == nil })
                 ?? candidates.first else {
             telemetry.recordSuppressed(reason: "noCandidate")
             predictionLog.append("PREDICT ctx=\"\(ctx)\" → SUPPRESS(noCandidate)")
@@ -1018,7 +1037,7 @@ final class CompletionController {
 
         // When the prompt was healed (ADR-019), the completion re-emits the already-typed stem
         // (" great today."); strip it back off so only the genuinely new text ("at today.") remains.
-        guard let anchored = anchorText(for: best, request: request, applyingFilter: false) else {
+        guard let anchored = usable?.1 ?? anchorText(for: best, request: request, applyingFilter: false) else {
             telemetry.recordSuppressed(reason: "emptyAfterBoundary")
             predictionLog.append("PREDICT ctx=\"\(ctx)\" [\(ranked)] → SUPPRESS(emptyAfterBoundary)")
             appendFullPromptLog(
@@ -1217,7 +1236,10 @@ final class CompletionController {
         let base = max(0, baseMaxCompletionTokens)
         let healing = max(0, healExtraTokens)
         guard shouldUseCapsule(for: context) else { return base + healing }
-        return base + healing // TYLER-MAX-2026-10-22: mid-line was capped at 3 tokens
+        // TYLER-MAX-2026-10-22: mid-line was capped at 3 tokens (then uncapped).
+        // GEMINI-REVIEW-2026-10-22: cap at 6 — matches CandidateFilter.maxVisibleMidLineTokenCount,
+        // so the decoder doesn't spend 32 steps on text the mid-line filter would hide anyway.
+        return min(base, 6) + healing
     }
 
     /// During a burst that is arriving faster than the current presentation/decode horizon, run
@@ -1249,12 +1271,17 @@ final class CompletionController {
         now: Date = Date()
     ) -> (FrozenPromptSideContext, reused: Bool) {
         let fieldKey = Self.sideContextFieldKey(for: context)
+        let currentText = String(context.beforeCursor.suffix(400)) // TYLER-SIMILAR-2026-10-22
+        // GEMINI-REVIEW-2026-10-22: rebuild once the field has enough words to pick similar history.
+        let hasSimilarityWords = settings.historyEnabled
+            && WritingHistorySelection.similarityWords(currentText).count >= 2
         if var cached = frozenSideContext,
            cached.canReuse(
                fieldKey: fieldKey,
                historyEnabled: settings.historyEnabled,
                clipboardEnabled: settings.clipboardEnabled,
                ocrEnabled: settings.ocrEnabled,
+               hasSimilarityWords: hasSimilarityWords,
                now: now
            ) {
             cached.lastUsedAt = now
@@ -1267,13 +1294,13 @@ final class CompletionController {
             domain: context.target.domain,
             typingContext: context.typingContext,
             language: context.detectedLanguage,
-            currentText: String(context.beforeCursor.suffix(400)) // TYLER-SIMILAR-2026-10-22
+            currentText: currentText
         )
         let previousUserInputs = settings.historyEnabled
             ? history.samples(for: query)
             : []
         let pasteboardText = settings.clipboardEnabled
-            ? NSPasteboard.general.string(forType: .string)
+            ? Self.promptSafePasteboardText(NSPasteboard.general)
             : nil
         let screenText = settings.ocrEnabled
             ? screenTextProvider.latestScreenText
@@ -1287,10 +1314,31 @@ final class CompletionController {
             previousUserInputs: previousUserInputs,
             pasteboardText: pasteboardText,
             screenText: screenText,
-            lastUsedAt: now
+            lastUsedAt: now,
+            createdAt: now,
+            hadSimilarityWords: hasSimilarityWords
         )
         frozenSideContext = frozen
         return (frozen, false)
+    }
+
+    /// GEMINI-REVIEW-2026-10-22: password managers mark copied secrets with the nspasteboard.org
+    /// Concealed/Transient/AutoGenerated types; those never go into the prompt (or the prompt log).
+    /// Long clipboards are cut to the last 4,000 characters so tokenizing them stays cheap.
+    nonisolated static let maxPromptPasteboardCharacters = 4_000
+    private nonisolated static let sensitivePasteboardTypes: Set<NSPasteboard.PasteboardType> = [
+        NSPasteboard.PasteboardType("org.nspasteboard.ConcealedType"),
+        NSPasteboard.PasteboardType("org.nspasteboard.TransientType"),
+        NSPasteboard.PasteboardType("org.nspasteboard.AutoGeneratedType")
+    ]
+
+    nonisolated static func promptSafePasteboardText(_ pasteboard: NSPasteboard) -> String? {
+        let types = Set(pasteboard.types ?? [])
+        guard types.isDisjoint(with: sensitivePasteboardTypes),
+              let text = pasteboard.string(forType: .string) else { return nil }
+        return text.count > maxPromptPasteboardCharacters
+            ? String(text.suffix(maxPromptPasteboardCharacters))
+            : text
     }
 
     private nonisolated static func sideContextFieldKey(for context: TextFieldContext) -> String {
@@ -1395,7 +1443,6 @@ final class CompletionController {
             }
             return false
         }
-        placement.fontSizeAdjustmentFactor *= settings.suggestionTextScale // TYLER-TEXTSCALE-2026-10-22
         // Mid-line fill-in-the-middle completions overlap the existing suffix when drawn as inline
         // ghost text, so present them in a capsule below the caret instead. End-of-line and
         // end-of-paragraph (suffix begins on the next line) completions append cleanly, so they keep
@@ -1422,12 +1469,21 @@ final class CompletionController {
             live: live
         )
         placement = calibrated.placement
-        let overlayStyle = calibrated.style.overlayTextStyle
+        var overlayStyle = calibrated.style.overlayTextStyle
         let mirrorContext = Self.textMirrorContext(for: live, placement: placement)
         let canUseTextMirror = GhostTextOverlayWindow.canUseTextMirror(
             placement: placement,
             mirrorContext: mirrorContext
         )
+        // TYLER-TEXTSCALE-2026-10-22 scaled `placement.fontSizeAdjustmentFactor` for every path.
+        // GEMINI-REVIEW-2026-10-22: in text-mirror mode that also enlarged the hidden copy of the
+        // field text, so the ghost wrapped and lined up as if the field were 1.4× wider-lettered.
+        // Mirror mode now scales only the ghost glyphs; the other modes keep the original scaling.
+        if canUseTextMirror {
+            overlayStyle.ghostFontScale = CGFloat(settings.suggestionTextScale)
+        } else {
+            placement.fontSizeAdjustmentFactor *= settings.suggestionTextScale
+        }
         let resolvedFont = InlineGhostTextPresenter.resolveFont(overlayStyle.font, placement: placement)
         if !canUseTextMirror,
            GhostTextOverlayWindow.shouldSuppressMirrorOverflow(text: shown, font: resolvedFont, placement: placement) {

@@ -177,7 +177,14 @@ public struct PromptBuilder {
                 PromptSection(
                     name: "generalInfo",
                     heading: "General information",
-                    content: "Application: \(context.target.appName)\nBundle identifier: \(context.target.bundleIdentifier)\nWindow title: \(context.target.windowTitle ?? "")\nContext: \(context.typingContext ?? "")",
+                    // GEMINI-REVIEW-2026-10-22: omit empty metadata lines so a base model isn't primed
+                    // to emit bare "Key: " lists.
+                    content: Self.metadataLines([
+                        ("Application", context.target.appName),
+                        ("Bundle identifier", context.target.bundleIdentifier),
+                        ("Window title", context.target.windowTitle),
+                        ("Context", context.typingContext)
+                    ]),
                     priority: 60,
                     maxBudget: 192
                 )
@@ -186,22 +193,32 @@ public struct PromptBuilder {
                 PromptSection(
                     name: "textFieldProperties",
                     heading: "Text field properties",
-                    content: "Placeholder: \(context.placeholder ?? "")\nLabels: \(context.labels.joined(separator: ", "))\nLanguage: \(context.detectedLanguage ?? "")",
+                    content: Self.metadataLines([
+                        ("Placeholder", context.placeholder),
+                        ("Labels", context.labels.joined(separator: ", ")),
+                        ("Language", context.detectedLanguage)
+                    ]),
                     priority: 65,
                     maxBudget: 192
                 )
             )
         }
 
+        // GEMINI-REVIEW-2026-10-22: an empty "[Text after cursor]" header right above the caret
+        // invites small base models to echo headers; only include the section when it has text.
+        if !context.afterCursor.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            sections.append(
+                PromptSection(
+                    name: "afterCursor",
+                    heading: "Text after cursor",
+                    content: context.afterCursor,
+                    priority: 90,
+                    maxBudget: 512,
+                    truncationMode: .preserveStart
+                )
+            )
+        }
         sections.append(contentsOf: [
-            PromptSection(
-                name: "afterCursor",
-                heading: "Text after cursor",
-                content: context.afterCursor,
-                priority: 90,
-                maxBudget: 512,
-                truncationMode: .preserveStart
-            ),
             PromptSection(
                 name: "beforeCursor",
                 heading: "Text before cursor",
@@ -234,7 +251,10 @@ public struct PromptBuilder {
                 PromptSection(
                     name: "previousUserInputs",
                     heading: "Relevant previous writing",
-                    content: previousUserInputs.joined(separator: "\n"),
+                    // GEMINI-REVIEW-2026-10-22: inputs arrive highest-priority first; reverse them so the
+                    // most relevant entry sits nearest the cursor and survives `.preserveEnd` truncation,
+                    // and separate entries with a blank line so they don't run together.
+                    content: previousUserInputs.reversed().joined(separator: "\n\n"),
                     priority: 50,
                     maxBudget: 512,
                     truncationMode: .preserveEnd
@@ -445,6 +465,14 @@ public struct PromptBuilder {
 
     private func tokenCount(for text: String) -> Int {
         tokenCounter.tokenCount(for: text)
+    }
+
+    /// `Key: value` lines, skipping keys whose value is missing or blank.
+    static func metadataLines(_ pairs: [(String, String?)]) -> String {
+        pairs.compactMap { key, value in
+            guard let value, !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
+            return "\(key): \(value)"
+        }.joined(separator: "\n")
     }
 
     /// Drops trailing whitespace (spaces, tabs, newlines) so the base-model prompt ends exactly at

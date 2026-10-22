@@ -173,6 +173,33 @@ public final class PersistentWritingHistoryStore: WritingHistoryStoring, @unchec
         return migrator
     }
 
+    /// Columns needed to rebuild a sample without the large context blobs (`screenText`,
+    /// `screenshotData`, …), so SQLCipher never decrypts them on the typing path.
+    /// GEMINI-REVIEW-2026-10-22.
+    static var lightweightColumns: [SQLSelectable] {
+        [
+            Column("id"), Column("text"), Column("appBundleIdentifier"), Column("domain"),
+            Column("typingContext"), Column("language"), Column("createdAt"), Column("updatedAt"),
+            Column("hasAcceptedCompletion"), Column("charCount"), Column("originDeviceID")
+        ]
+    }
+
+    /// Rows this Mac wrote (not pulled from another device) changed after `date`, oldest first.
+    /// Filtering `originDeviceID IS NULL` in SQL means pulled rows can never fill the `limit` and
+    /// starve local pushes. GEMINI-REVIEW-2026-10-22.
+    public func localSamplesUpdated(after date: Date, limit: Int) -> [WritingHistorySample] {
+        (try? dbQueue.read { db in
+            try StoredWritingSample
+                .select(Self.lightweightColumns)
+                .filter(Column("originDeviceID") == nil)
+                .filter(Column("updatedAt") > date)
+                .order(Column("updatedAt").asc)
+                .limit(limit)
+                .fetchAll(db)
+                .map(\.asSample)
+        }) ?? []
+    }
+
     /// TYLER-SYNC-2026-10-22: rows changed after `date`, oldest first (used by `HistorySync`).
     public func samplesUpdated(after date: Date, limit: Int) -> [WritingHistorySample] {
         (try? dbQueue.read { db in
@@ -200,7 +227,14 @@ public final class PersistentWritingHistoryStore: WritingHistoryStoring, @unchec
                     .filter(Column("appBundleIdentifier") == sample.appBundleIdentifier)
                     .fetchOne(db)
                 if var existing {
-                    existing.updatedAt = sample.updatedAt
+                    // GEMINI-REVIEW-2026-10-22: a pulled (older) copy must not rewind `updatedAt`,
+                    // and typing the text again on this Mac takes ownership so it gets pushed.
+                    if sample.updatedAt > existing.updatedAt {
+                        existing.updatedAt = sample.updatedAt
+                    }
+                    if sample.originDeviceID == nil {
+                        existing.originDeviceID = nil
+                    }
                     existing.hasAcceptedCompletion = existing.hasAcceptedCompletion || sample.hasAcceptedCompletion
                     try existing.update(db)
                 } else {
@@ -239,6 +273,7 @@ public final class PersistentWritingHistoryStore: WritingHistoryStoring, @unchec
         do {
             candidates = try dbQueue.read { db -> [StoredWritingSample] in
                 var request = StoredWritingSample
+                    .select(Self.lightweightColumns) // GEMINI-REVIEW-2026-10-22: no blob decryption
                     .filter(Column("charCount") >= query.minimumCharacters)
                 if let bundle = query.bundleIdentifier, query.sameAppOnly {
                     request = request.filter(Column("appBundleIdentifier") == bundle)
@@ -252,7 +287,9 @@ public final class PersistentWritingHistoryStore: WritingHistoryStoring, @unchec
                 // Hard upper bound on rows pulled into memory before mixing.
                 return try request
                     .order(Column("updatedAt").desc)
-                    .limit(query.currentText == nil ? 200 : 2000) // TYLER-SIMILAR-2026-10-22
+                    // TYLER-SIMILAR-2026-10-22 raised this to 2000; GEMINI-REVIEW-2026-10-22: 500 keeps the
+                    // main-thread query and similarity scoring cheap.
+                    .limit(query.currentText == nil ? 200 : 500)
                     .fetchAll(db)
             }
         } catch {
@@ -266,9 +303,21 @@ public final class PersistentWritingHistoryStore: WritingHistoryStoring, @unchec
 /// Pure recency/longest/cross-app mixing + token-budget capping, factored out so it is unit-testable
 /// without a database. Mirrors the "recent + long + same-context" guidance in `docs/02-prompting.md`
 /// and the shape of the M3 `InMemoryWritingHistoryStore`.
-enum WritingHistorySelection {
+public enum WritingHistorySelection {
     static func select(from entries: [WritingHistorySample], query: WritingHistoryQuery) -> [String] {
-        let candidates = entries.filter { $0.text.count >= query.minimumCharacters }
+        // GEMINI-REVIEW-2026-10-22: drop the saved copy of the field being typed from EVERY bucket
+        // (it was only skipped for the similar bucket), or the latest same-app entry — usually an
+        // earlier draft of this very text — gets fed back and the model repeats it.
+        let current = query.currentText ?? ""
+        let probe = String(current.suffix(60)).trimmingCharacters(in: .whitespacesAndNewlines)
+        let currentHead = String(current.prefix(80))
+        let candidates = entries.filter { entry in
+            guard entry.text.count >= query.minimumCharacters else { return false }
+            if probe.count >= 12, entry.text.contains(probe) { return false }
+            if !current.isEmpty, current.contains(entry.text) { return false }
+            if currentHead.count >= 12, entry.text.hasPrefix(currentHead) { return false }
+            return true
+        }
 
         let sameApp = candidates.filter { entry in
             guard let bundle = query.bundleIdentifier else { return true }
@@ -294,11 +343,8 @@ enum WritingHistorySelection {
             let words = similarityWords(current)
             if !words.isEmpty {
                 // Skip the saved copy of the field being typed right now (it would echo itself).
-                let probe = String(current.suffix(60)).trimmingCharacters(in: .whitespacesAndNewlines)
                 var scored: [(sample: WritingHistorySample, score: Double)] = []
                 for entry in candidates {
-                    if probe.count >= 12, entry.text.contains(probe) { continue }
-                    if current.contains(entry.text) { continue }
                     let score = similarityScore(similarityWords(entry.text), against: words)
                     if score > 0 { scored.append((entry, score)) }
                 }
@@ -334,7 +380,7 @@ enum WritingHistorySelection {
     ]
 
     /// Lowercased content words of 3+ letters, minus common filler words.
-    static func similarityWords(_ text: String) -> Set<String> {
+    public static func similarityWords(_ text: String) -> Set<String> {
         let parts = text.lowercased().split { !($0.isLetter || $0.isNumber || $0 == "'") }
         return Set(parts.map(String.init).filter { $0.count >= 3 && !stopWords.contains($0) })
     }

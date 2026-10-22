@@ -22,6 +22,7 @@ struct StatisticsSettingsView: View {
     let makeLatencyExport: () -> Data?
 
     @State private var snapshot: TelemetrySnapshot = TelemetrySnapshot()
+    @State private var dailyStats: [String: DailyCompletionStats.Day] = [:]
     @State private var snapshots: [CompletionTelemetrySnapshotFile] = []
     @State private var selectedSnapshotIDs: Set<String> = []
     @State private var exportDocument: LatencyExportDocument?
@@ -52,7 +53,9 @@ struct StatisticsSettingsView: View {
             }
 
             Section("Accepted per day") { // TYLER-DAILYSTATS-2026-10-22
-                let days = DailyCompletionStats(url: DailyCompletionStats.defaultURL()).load()
+                // GEMINI-REVIEW-2026-10-22: read once in refreshStats() through the shared, locked
+                // instance instead of re-reading the file on every render.
+                let days = dailyStats
                 if days.isEmpty {
                     Text("Nothing accepted yet. Press Tab on a suggestion to start counting.")
                         .foregroundStyle(.secondary)
@@ -224,6 +227,7 @@ struct StatisticsSettingsView: View {
 
     private func refreshStats() {
         snapshot = telemetry.snapshot()
+        dailyStats = DailyCompletionStats.shared.load() // GEMINI-REVIEW-2026-10-22
         reloadSnapshots()
     }
 

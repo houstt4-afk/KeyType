@@ -209,7 +209,8 @@ struct KeyTypeTests {
         #expect(controller.loadState == .idle)
     }
 
-    @Test func midLineBudgetUsesTwoVisibleTokensPlusLookahead() {
+    // GEMINI-REVIEW-2026-10-22: mid-line budget is capped at 6 tokens (+ healing slack).
+    @Test func midLineBudgetIsCappedAtSixTokens() {
         let context = TextFieldContext(
             beforeCursor: "Please review",
             afterCursor: " this change",
@@ -221,7 +222,7 @@ struct KeyTypeTests {
             baseMaxCompletionTokens: 8,
             healExtraTokens: 0,
             context: context
-        ) == 3)
+        ) == 6)
     }
 
     @Test func healedMidLineBudgetKeepsOneTokenOfPrefixSlack() {
@@ -236,7 +237,7 @@ struct KeyTypeTests {
             baseMaxCompletionTokens: 8,
             healExtraTokens: 1,
             context: context
-        ) == 4)
+        ) == 7)
     }
 
     @Test func endOfLineBudgetRetainsConfiguredLengthAndHealingSlack() {

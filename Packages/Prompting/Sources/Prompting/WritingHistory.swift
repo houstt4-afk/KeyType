@@ -81,7 +81,7 @@ public struct WritingHistoryQuery: Equatable {
         longestCount: Int = 2,
         mostRecentCount: Int = 4,
         crossAppRecentCount: Int = 2,
-        tokenBudget: Int = 256,
+        tokenBudget: Int = 512, // GEMINI-REVIEW-2026-10-22: was 256; matches PromptBuilder's 512-token history section
         sameAppOnly: Bool = false,
         currentText: String? = nil,
         similarCount: Int = 3

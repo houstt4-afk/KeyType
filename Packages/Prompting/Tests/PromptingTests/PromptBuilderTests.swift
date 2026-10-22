@@ -69,8 +69,6 @@ final class PromptBuilderGoldenTests: XCTestCase {
         Context: email
 
         [Text field properties]
-        Placeholder: 
-        Labels: 
         Language: en
 
         [Text after cursor]
@@ -114,8 +112,6 @@ final class PromptBuilderGoldenTests: XCTestCase {
         Context: email
 
         [Text field properties]
-        Placeholder: 
-        Labels: 
         Language: en
 
         [Relevant previous writing]
@@ -137,6 +133,27 @@ final class PromptBuilderGoldenTests: XCTestCase {
         """
 
         XCTAssertEqual(result.prompt, expected)
+    }
+}
+
+final class PromptBuilderGeminiReviewTests: XCTestCase {
+    /// GEMINI-REVIEW-2026-10-22: no empty "[Text after cursor]" header at end-of-line.
+    func testEmptyAfterCursorSectionIsOmitted() {
+        let builder = PromptBuilder(tokenCounter: makeCounter(), maxPromptTokens: 1024)
+        let result = builder.buildPrompt(context: makeContext(afterCursor: "  "))
+        XCTAssertFalse(result.prompt.contains("[Text after cursor]"))
+        XCTAssertNil(result.sections.first { $0.name == "afterCursor" })
+    }
+
+    /// GEMINI-REVIEW-2026-10-22: highest-priority history entry lands nearest the cursor.
+    func testFirstHistoryEntryIsRenderedLast() {
+        let builder = PromptBuilder(tokenCounter: makeCounter(), maxPromptTokens: 1024)
+        let result = builder.buildPrompt(
+            context: makeContext(),
+            previousUserInputs: ["most similar", "least similar"]
+        )
+        let section = result.sections.first { $0.name == "previousUserInputs" }
+        XCTAssertEqual(section?.content, "least similar\n\nmost similar")
     }
 }
 

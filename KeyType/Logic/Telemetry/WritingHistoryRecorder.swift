@@ -112,9 +112,14 @@ final class WritingHistoryRecorder {
                 language: context.detectedLanguage,
                 selectedText: context.selection.selectedText,
                 textAfterCursor: context.afterCursor.isEmpty ? nil : context.afterCursor,
-                windowTitle: context.target.windowTitle,
+                // GEMINI-REVIEW-2026-10-22: the window title (often a document/email subject) is
+                // screen context, so it is only kept when "store screen text" is on.
+                windowTitle: settings.historyStoreScreenText ? context.target.windowTitle : nil,
                 screenText: settings.historyStoreScreenText ? screenTextProvider.latestScreenText : nil,
-                screenshotData: settings.historyStoreScreenshot ? ScreenshotStash.shared.latestJPEG : nil
+                // GEMINI-REVIEW-2026-10-22: only a fresh screenshot of THIS app's window.
+                screenshotData: settings.historyStoreScreenshot
+                    ? ScreenshotStash.shared.latestJPEG(for: context.target.bundleIdentifier)
+                    : nil
             )
         )
         scheduleIdleCommit()

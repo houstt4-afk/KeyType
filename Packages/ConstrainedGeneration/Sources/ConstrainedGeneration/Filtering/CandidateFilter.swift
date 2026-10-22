@@ -124,7 +124,9 @@ public final class DefaultCandidateFilter: CandidateFiltering {
         // 7b. Repetition net (TYLER-MAX-2026-10-22): long budgets make base models loop
         //     ("for medical school ... for medical school", "1 1 1 1"). Suppress so the next
         //     candidate is shown instead.
-        if Self.isRepetitive(candidate.text) { return .insertionUnsafe }
+        //     GEMINI-REVIEW-2026-10-22: also judged against the prompt tail, so a candidate that
+        //     echoes the last few typed words once is caught too.
+        if Self.isRepetitive(candidate.text, beforeCursor: request.context.beforeCursor) { return .insertionUnsafe }
 
         // 8. Mid-line confidence net. Native FIM is useful only when it is both short and highly
         //    likely; longer middle spans have been low-precision in edge data. Keep this deliberately
@@ -149,27 +151,85 @@ public final class DefaultCandidateFilter: CandidateFiltering {
         return nil
     }
 
-    static func isRepetitive(_ text: String) -> Bool {
-        let words = text.lowercased()
+    /// Loop detector. Checks the candidate together with the last ~120 characters typed, so a
+    /// candidate that repeats the prompt tail once is caught; also catches 2-word alternation
+    /// ("yes no yes no yes no") and short character-period loops in the candidate itself, which
+    /// covers scripts without spaces (CJK) and symbol runs. GEMINI-REVIEW-2026-10-22.
+    static func isRepetitive(_ text: String, beforeCursor: String = "") -> Bool {
+        if wordsRepeat(text) { return true }
+        if !beforeCursor.isEmpty {
+            // Prompt-tail echo: the candidate re-emits the last four words the user typed. Ordinary
+            // reused phrases ("a lot of") are shorter than this and stay allowed.
+            let tailWords = normalizedWords(String(beforeCursor.suffix(120)))
+            let candidateWords = normalizedWords(text)
+            if tailWords.count >= 4, candidateWords.count >= 4 {
+                let echo = Array(tailWords.suffix(4))
+                for i in 0...(candidateWords.count - 4) where Array(candidateWords[i..<(i + 4)]) == echo {
+                    return true
+                }
+            }
+        }
+        return hasCharacterPeriodLoop(text)
+    }
+
+    private static func normalizedWords(_ text: String) -> [String] {
+        text.lowercased()
             .split { $0.isWhitespace }
             .map { $0.trimmingCharacters(in: .punctuationCharacters) }
             .filter { !$0.isEmpty }
+    }
+
+    private static func wordsRepeat(_ text: String) -> Bool {
+        let words = normalizedWords(text)
         guard words.count >= 4 else { return false }
+        return firstRepeatIndex(in: words) != nil
+    }
+
+    /// Index of the last word of the first detected loop (3× the same word, a repeated 3-gram,
+    /// or a 2-word alternation repeated three times), or nil.
+    private static func firstRepeatIndex(in words: [String]) -> Int? {
+        guard words.count >= 3 else { return nil }
         var run = 1
+        var seen = Set<String>()
         for i in 1..<words.count {
             run = words[i] == words[i - 1] ? run + 1 : 1
-            if run >= 3 { return true }
+            if run >= 3 { return i }
+            if i >= 2 {
+                let gram = words[(i - 2)...i].joined(separator: " ")
+                if !seen.insert(gram).inserted { return i }
+            }
+            if i >= 5,
+               words[i - 5] == words[i - 3], words[i - 3] == words[i - 1],
+               words[i - 4] == words[i - 2], words[i - 2] == words[i] {
+                return i
+            }
         }
-        var seen = Set<String>()
-        for i in 0...(words.count - 3) {
-            let gram = words[i..<(i + 3)].joined(separator: " ")
-            if !seen.insert(gram).inserted { return true }
+        return nil
+    }
+
+    private static func hasCharacterPeriodLoop(_ text: String) -> Bool {
+        let chars = Array(text.trimmingCharacters(in: .whitespacesAndNewlines))
+        guard chars.count >= 12 else { return false }
+        for period in 1...6 where chars.count >= period * 3 {
+            let tail = Array(chars.suffix(period * 3))
+            let a = tail[0..<period], b = tail[period..<(period * 2)], c = tail[(period * 2)...]
+            if Array(a) == Array(b), Array(b) == Array(c) {
+                // A run of one repeated letter inside a word ("aaa") is the only false positive
+                // at period 1; require it to be non-alphanumeric or longer than 4 to count.
+                if period == 1, a.first?.isLetter == true || a.first?.isNumber == true {
+                    let run = chars.reversed().prefix { $0 == a.first }.count
+                    if run < 5 { continue }
+                }
+                return true
+            }
         }
         return false
     }
 
-    private static let maxVisibleMidLineTokenCount = 32 // TYLER-MAX-2026-10-22: was 8, orig 2
-    private static let minimumMidLineMeanLogProbability = -4.0 // TYLER-MAX-2026-10-22: was -1.5, orig -0.5
+    // GEMINI-REVIEW-2026-10-22: was 32 / -4.0 (TYLER-MAX); 32-token mid-line fills at ~1.8%/token
+    // were low-precision. Orig 2 / -0.5.
+    private static let maxVisibleMidLineTokenCount = 6
+    private static let minimumMidLineMeanLogProbability = -1.25
 
     static func hasLowConfidenceMidLineCandidate(
         _ candidate: CompletionCandidate,

@@ -563,6 +563,12 @@ public final class ConstrainedGenerationEngine: CompletionGenerating {
         return target - (maxLogit + logf(sumExp))
     }
 
+    static let lengthNormalizationAlpha: Float = 0.6
+
+    static func lengthNormalizedScore(_ branch: GenerationBranch) -> Float {
+        branch.score / powf(Float(max(1, branch.tokenIDs.count)), lengthNormalizationAlpha)
+    }
+
     /// Dedupe by emitted text (best score wins), rank, and cap to `maxCandidates`.
     private func makeCandidates(from branches: [GenerationBranch], mode: CompletionMode) -> [CompletionCandidate] {
         var bestByText: [String: GenerationBranch] = [:]
@@ -571,8 +577,13 @@ public final class ConstrainedGenerationEngine: CompletionGenerating {
             bestByText[branch.text] = branch
         }
 
+        // GEMINI-REVIEW-2026-10-22: rank by length-normalised score (score / tokens^0.6). Raw
+        // cumulative log-probability falls with every token, so a 1–2 token stub always outranked a
+        // well-formed clause once Long allowed 32 tokens. `logProbability` stays the raw sum so the
+        // mean-per-token filters downstream are unchanged.
         let ordered = bestByText.values.sorted { lhs, rhs in
-            lhs.score != rhs.score ? lhs.score > rhs.score : lhs.text < rhs.text
+            let l = Self.lengthNormalizedScore(lhs), r = Self.lengthNormalizedScore(rhs)
+            return l != r ? l > r : lhs.text < rhs.text
         }
 
         return ordered.prefix(max(0, configuration.maxCandidates)).map { branch in

@@ -3939,3 +3939,41 @@ text. Both are now closed:
   it cannot block the main actor or accumulate periodic capture work. Screen context and visual
   calibration fail open while ordinary completion, settings, and quit handling remain responsive.
   The two OCR features intentionally trade occasional suppression for process-wide liveness.
+
+## ADR-134 — Apply the 2026-10-22 external review of the post-1.8 changes
+
+- Date: 2026-10-22
+- Status: accepted
+- Context: An outside code review (Gemini, shared chat `share.gemini.google/w29lFxh8dQff`) of the
+  changes since Release 1.8 (longer suggestions, similar-history selection, encrypted iCloud history
+  sync, auto-applied corrections, 1.4× ghost text) found real defects, each confirmed against the
+  code: every keystroke started a full-length decode before the debounce; the fallthrough pick
+  could still end as `emptyAfterBoundary`; the side-context cache never expired during steady
+  typing; history queries decrypted screenshot/screen-text blobs on the main actor; sync filenames
+  used per-launch `hashValue`, pulled rows starved local pushes, and pulled copies rewound
+  `updatedAt`; auto-applied corrections could backspace against stale text, ignored Esc after a
+  space, and the confidence floor and model-validation gates were effectively off; the text-mirror
+  overlay enlarged the hidden field copy along with the ghost; copied passwords reached the prompt;
+  "Clear all personal data" left sync files, stats, and the stashed screenshot.
+- Decision: Tagged `GEMINI-REVIEW-2026-10-22` throughout. Await the debounce before
+  `engine.completions`. Pick the first candidate whose `anchorText(applyingFilter: true)` survives.
+  Expire frozen side context from `createdAt` and rebuild once ≥ 2 similarity words exist. Rank
+  candidates by `score / tokens^0.6` (stored log-probability unchanged). Omit empty prompt
+  sections/metadata lines; render history most-similar-nearest-the-cursor; history budget 512.
+  `isRepetitive` also catches prompt-tail echoes, 2-word alternation, and character-period loops.
+  Mid-line: token budget and visible cap 6, mean log-prob floor −1.25. History reads select only
+  light columns, LIMIT 500, self-echo filtered from every bucket. Sync: SQL-filtered local rows,
+  SHA-256 filenames, newest-`updatedAt` wins with local ownership on retype, `.icloud` placeholders
+  downloaded, single-flight lock, `resetAfterLocalClear()`, envelope carries text + light metadata
+  only. Corrections: key-down cancels detection; auto-apply only for a just-closed word in an
+  unchanged context; word key = 40-char lead + word; confidence floor 0.72; validation thresholds
+  −8.5 / 0.08 / −8.5 with a 1.0 "original is much better" margin. Text mirror scales only the
+  ghost glyphs (`OverlayTextStyle.ghostFontScale`). Concealed/transient/auto-generated pasteboard
+  items are skipped and the clipboard is capped at 4,000 characters. Window titles are stored only
+  with the screen-text setting; screenshots only from the same app within 15 s; one shared,
+  locked `DailyCompletionStats`.
+- Consequences: Fewer wasted GPU decodes while typing and fewer silent suppressions; history and
+  sync are cheaper and no longer duplicate or starve; corrections are more conservative (fewer
+  proper nouns overwritten, some real typos left for Tab). Several values set by the TYLER-MAX
+  changes are tightened again and may need retuning from telemetry. Not done here:
+  `FieldFontResolver.currentStyle()` AX-walk caching and a debounce in `CorrectionController.handle`.

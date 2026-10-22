@@ -131,6 +131,16 @@ final class CorrectionController {
         }
     }
 
+    static let minimumConfidence = 0.72
+
+    /// GEMINI-REVIEW-2026-10-22: called from the key-down tap. A keystroke makes any in-flight
+    /// detection stale, so cancel it before it can show (or auto-apply) against old text.
+    func noteUserKeyDown() {
+        detectionTask?.cancel()
+        detectionTask = nil
+        lastContextKey = nil
+    }
+
     func dismissCorrection() {
         guard let correction = visibleCorrection, let context = visibleContext else { return }
         dismissedWordKey = Self.wordKey(correction: correction, context: context)
@@ -247,7 +257,9 @@ final class CorrectionController {
             clear()
             return
         }
-        guard best.confidence >= 0.5 else { // TYLER-MAX-2026-10-22: was 0.76
+        // TYLER-MAX-2026-10-22 lowered 0.76 → 0.5; GEMINI-REVIEW-2026-10-22: spellcheck clamps its
+        // confidence at ≥ 0.55, so 0.5 let every guess through. 0.72 restores a real floor.
+        guard best.confidence >= Self.minimumConfidence else {
             telemetry.recordCorrectionSuppressed(reason: "lowSpellcheckConfidence")
             predictionLog.append("CORRECT word=\"\(PredictionLog.escape(best.original))\" -> SUPPRESS(lowSpellcheckConfidence)")
             clear()
@@ -286,16 +298,29 @@ final class CorrectionController {
         )
         // TYLER-AUTOFIX-2026-10-22: fix finished words on their own, like Apple autocorrect —
         // once a space or punctuation follows the misspelled word, apply the fix without Tab.
-        if Self.wordIsFinished(best, context: context) {
+        // GEMINI-REVIEW-2026-10-22: only if no keystroke arrived since this detection started
+        // (noteUserKeyDown clears lastContextKey), so the backspaces never hit newer text.
+        if Self.wordIsFinished(best, context: context),
+           lastContextKey == Self.contextKey(for: context) {
             acceptCorrection()
         }
     }
 
-    private static func wordIsFinished(_ candidate: CorrectionCandidate, context: TextFieldContext) -> Bool {
+    /// GEMINI-REVIEW-2026-10-22: "finished" means the word was JUST closed — one space or one
+    /// punctuation mark (optionally punctuation + space) right after it, never a newline. The old test
+    /// (any whitespace/punctuation tail) also fired on words the user had moved away from.
+    static func wordIsFinished(_ candidate: CorrectionCandidate, context: TextFieldContext) -> Bool {
         guard candidate.originalRange.container == .beforeCursor,
               let range = candidate.originalRange.range(in: context.beforeCursor) else { return false }
-        let tail = context.beforeCursor[range.upperBound...]
-        return !tail.isEmpty && tail.allSatisfy { $0.isWhitespace || $0.isPunctuation }
+        let tail = Array(context.beforeCursor[range.upperBound...])
+        switch tail.count {
+        case 1:
+            return tail[0] == " " || tail[0].isPunctuation
+        case 2:
+            return tail[0].isPunctuation && tail[1] == " "
+        default:
+            return false
+        }
     }
 
     private func clear() {
@@ -314,10 +339,19 @@ final class CorrectionController {
         ].joined(separator: "\u{1E}")
     }
 
-    private static func wordKey(correction: CorrectionCandidate, context: TextFieldContext) -> String {
-        [
+    /// GEMINI-REVIEW-2026-10-22: identifies the word by the text just before it plus the word, not
+    /// by the whole `beforeCursor` — typing a space after Esc used to change the key, so a dismissed
+    /// word was auto-replaced anyway.
+    static func wordKey(correction: CorrectionCandidate, context: TextFieldContext) -> String {
+        var lead = ""
+        if correction.originalRange.container == .beforeCursor,
+           let range = correction.originalRange.range(in: context.beforeCursor) {
+            lead = String(context.beforeCursor[..<range.lowerBound].suffix(40))
+        }
+        return [
             context.target.bundleIdentifier,
-            context.beforeCursor,
+            correction.originalRange.container.rawValue,
+            lead,
             correction.original,
             correction.replacement
         ].joined(separator: "\u{1E}")

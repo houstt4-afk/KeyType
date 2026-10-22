@@ -9,10 +9,11 @@ public struct CorrectionValidationThresholds: Equatable, Sendable {
     public var priorPredictionConfidence: Double
 
     public init(
-        minimumMeanLogProbability: Double = -20.0, // TYLER-MAX-2026-10-22: max corrections (was -9.0, orig -6.0)
-        minimumMargin: Double = 0.0, // TYLER-MAX-2026-10-22: was 0.05
-        // TYLER-CORRECT-2026-10-22: was 0.20; real typos (receice, yiu, wutg) were all suppressed
-        minimumSuffixMeanLogProbability: Double = -12.0, // TYLER-MAX-2026-10-22: was -7.0
+        // GEMINI-REVIEW-2026-10-22: was -20 / 0.0 / -12 (TYLER-MAX), which let auto-apply overwrite
+        // proper nouns and terms the model preferred. Orig -6.0 / 0.20 / -7.0.
+        minimumMeanLogProbability: Double = -8.5,
+        minimumMargin: Double = 0.08,
+        minimumSuffixMeanLogProbability: Double = -8.5,
         priorPredictionConfidence: Double = 0.97
     ) {
         self.minimumMeanLogProbability = minimumMeanLogProbability
@@ -94,7 +95,10 @@ public final class CorrectionValidationScorer {
 
         return scored.compactMap { entry in
             let margin = runnerUp.map { entry.score - $0 } ?? .infinity
-            let originalIsMuchBetter = originalScore > entry.score + max(3.0, thresholds.minimumMargin * 2) // TYLER-MAX-2026-10-22: was 1.0
+            // GEMINI-REVIEW-2026-10-22: back to the original 1.0 margin. TYLER-MAX's 3.0 let auto-apply
+            // overwrite words the model clearly preferred; Gemini's `>=` (no margin) would also block
+            // real typos the model only slightly prefers (see testMisspelledOriginalDoesNotVeto…).
+            let originalIsMuchBetter = originalScore > entry.score + max(1.0, thresholds.minimumMargin * 2)
             let suffixPass = entry.suffixScore.map { $0 >= thresholds.minimumSuffixMeanLogProbability } ?? true
             let passesValidation: Bool
             if entry.candidate.source == .systemGrammarOnly {

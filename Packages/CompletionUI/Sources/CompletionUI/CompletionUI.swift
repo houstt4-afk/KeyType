@@ -79,19 +79,25 @@ public struct OverlayTextStyle {
     public var paragraphStyle: NSParagraphStyle?
     public var baselineOffset: CGFloat
     public var lineHeight: CGFloat?
+    /// GEMINI-REVIEW-2026-10-22: text-mirror only — scales the visible ghost glyphs while the hidden
+    /// mirrored field text keeps the field's real size, so wrapping and caret alignment stay correct
+    /// when the "suggestion text size" setting is above 1×.
+    public var ghostFontScale: CGFloat
 
     public init(
         font: NSFont? = nil,
         textColor: NSColor? = nil,
         paragraphStyle: NSParagraphStyle? = nil,
         baselineOffset: CGFloat = 0,
-        lineHeight: CGFloat? = nil
+        lineHeight: CGFloat? = nil,
+        ghostFontScale: CGFloat = 1
     ) {
         self.font = font
         self.textColor = textColor
         self.paragraphStyle = paragraphStyle
         self.baselineOffset = baselineOffset
         self.lineHeight = lineHeight
+        self.ghostFontScale = ghostFontScale
     }
 }
 

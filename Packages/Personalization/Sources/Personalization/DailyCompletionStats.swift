@@ -2,7 +2,7 @@ import Foundation
 
 /// TYLER-DAILYSTATS-2026-10-22: per-day accepted-suggestion counts (Cotypist `completionStats.json`
 /// parity). Short = one word accepted; long = a whole suggestion accepted. Plain JSON, local only.
-public final class DailyCompletionStats {
+public final class DailyCompletionStats: @unchecked Sendable { // lock-guarded; url is immutable
     public struct Day: Codable, Equatable {
         public var shortAccepted = 0
         public var longAccepted = 0
@@ -14,6 +14,16 @@ public final class DailyCompletionStats {
     private let lock = NSLock()
 
     public init(url: URL) { self.url = url }
+
+    /// One instance per file, so every reader and writer goes through the same lock.
+    /// GEMINI-REVIEW-2026-10-22 (the Statistics pane used to build its own unlocked copy).
+    public static let shared = DailyCompletionStats(url: defaultURL())
+
+    /// Wipes the per-day counts ("Clear all personal data").
+    public func clearAll() {
+        lock.lock(); defer { lock.unlock() }
+        try? FileManager.default.removeItem(at: url)
+    }
 
     public static func defaultURL() -> URL {
         let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]

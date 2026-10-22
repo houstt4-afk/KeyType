@@ -821,6 +821,36 @@ final class CompletionUITests: XCTestCase {
         XCTAssertLessThan(origin.y, targetCaret.minY)
     }
 
+    /// GEMINI-REVIEW-2026-10-22: a 1.4× ghost must not move the mirrored caret — only the visible
+    /// completion is enlarged, so the hidden field text lays out exactly as at 1×.
+    @MainActor
+    func testTextMirrorGhostScaleLeavesHiddenPrefixAtFieldSize() {
+        let font = NSFont.systemFont(ofSize: 15)
+        let field = CGRect(x: 100, y: 200, width: 260, height: 90)
+        let caret = CGRect(x: 174, y: 244, width: 2, height: 20)
+        let placement = OverlayPlacement(cursorRect: caret, fieldRect: field, mode: .mirror)
+        let context = TextMirrorOverlayContext(beforeCursor: "The quick brown fox", afterCursor: "")
+        let cursor = ("The quick brown fox" as NSString).length
+
+        func mirrorCaret(scale: CGFloat) -> CGRect {
+            let view = TextMirrorCompletionNSView(frame: CGRect(origin: .zero, size: field.size))
+            view.configure(
+                mirrorContext: context,
+                completion: " jumps over",
+                style: OverlayTextStyle(font: font, ghostFontScale: scale),
+                placement: placement
+            )
+            return view.caretRect(utf16Location: cursor)
+        }
+
+        // The mirrored caret (which positions the ghost) is where it is at 1×, whatever the ghost size.
+        XCTAssertEqual(mirrorCaret(scale: 1.4).minX, mirrorCaret(scale: 1).minX, accuracy: 0.5)
+        XCTAssertEqual(mirrorCaret(scale: 1.4).minY, mirrorCaret(scale: 1).minY, accuracy: 0.5)
+        let scaled = TextMirrorCompletionNSView.ghostFont(font, scale: 1.4)
+        XCTAssertEqual(scaled.pointSize, 21, accuracy: 0.01)
+        XCTAssertEqual(TextMirrorCompletionNSView.ghostFont(font, scale: 1).pointSize, 15)
+    }
+
     // MARK: - Advance past an accepted word
 
     @MainActor

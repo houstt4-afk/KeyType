@@ -283,7 +283,7 @@ public final class TextMirrorCompletionNSView: NSView {
             baselineOffset: style.baselineOffset
         )
         let ghostAttributes = textAttributes(
-            font: font,
+            font: ghostFont(font, scale: style.ghostFontScale),
             color: GhostTextView.visibleGhostColor(from: style.textColor),
             paragraphStyle: paragraphStyle,
             baselineOffset: style.baselineOffset
@@ -294,6 +294,13 @@ public final class TextMirrorCompletionNSView: NSView {
         result.append(NSAttributedString(string: completion, attributes: ghostAttributes))
         result.append(NSAttributedString(string: after, attributes: hiddenAttributes))
         return result
+    }
+
+    /// GEMINI-REVIEW-2026-10-22: only the visible completion is enlarged; the hidden text it is laid
+    /// out after stays at the field's size so the caret position and line breaks match the field.
+    static func ghostFont(_ font: NSFont, scale: CGFloat) -> NSFont {
+        guard scale > 0, abs(scale - 1) > 0.001 else { return font }
+        return NSFont(descriptor: font.fontDescriptor, size: font.pointSize * scale) ?? font
     }
 
     private static func textAttributes(
@@ -328,6 +335,9 @@ public final class TextMirrorCompletionNSView: NSView {
             paragraph.minimumLineHeight = font.ascender - font.descender + font.leading
             paragraph.maximumLineHeight = paragraph.minimumLineHeight
         }
+        // GEMINI-REVIEW-2026-10-22: line height deliberately stays at the field's value even when the
+        // ghost is enlarged — measured: scaling it dropped the ghost baseline 3.7 pt below the typed
+        // text (vs 1 pt without), and a low ghost on every line is worse than tight wrapped lines.
         return paragraph
     }
 }
