@@ -9,9 +9,10 @@ public struct CorrectionValidationThresholds: Equatable, Sendable {
     public var priorPredictionConfidence: Double
 
     public init(
-        minimumMeanLogProbability: Double = -9.0, // TYLER-CORRECT-2026-10-22: was -6.0
-        minimumMargin: Double = 0.05, // TYLER-CORRECT-2026-10-22: was 0.20; real typos (receice, yiu, wutg) were all suppressed
-        minimumSuffixMeanLogProbability: Double = -7.0,
+        minimumMeanLogProbability: Double = -20.0, // TYLER-MAX-2026-10-22: max corrections (was -9.0, orig -6.0)
+        minimumMargin: Double = 0.0, // TYLER-MAX-2026-10-22: was 0.05
+        // TYLER-CORRECT-2026-10-22: was 0.20; real typos (receice, yiu, wutg) were all suppressed
+        minimumSuffixMeanLogProbability: Double = -12.0, // TYLER-MAX-2026-10-22: was -7.0
         priorPredictionConfidence: Double = 0.97
     ) {
         self.minimumMeanLogProbability = minimumMeanLogProbability
@@ -93,7 +94,7 @@ public final class CorrectionValidationScorer {
 
         return scored.compactMap { entry in
             let margin = runnerUp.map { entry.score - $0 } ?? .infinity
-            let originalIsMuchBetter = originalScore > entry.score + max(1.0, thresholds.minimumMargin * 2)
+            let originalIsMuchBetter = originalScore > entry.score + max(3.0, thresholds.minimumMargin * 2) // TYLER-MAX-2026-10-22: was 1.0
             let suffixPass = entry.suffixScore.map { $0 >= thresholds.minimumSuffixMeanLogProbability } ?? true
             let passesValidation: Bool
             if entry.candidate.source == .systemGrammarOnly {

@@ -121,6 +121,11 @@ public final class DefaultCandidateFilter: CandidateFiltering {
             return .duplicatesAfterCursor
         }
 
+        // 7b. Repetition net (TYLER-MAX-2026-10-22): long budgets make base models loop
+        //     ("for medical school ... for medical school", "1 1 1 1"). Suppress so the next
+        //     candidate is shown instead.
+        if Self.isRepetitive(candidate.text) { return .insertionUnsafe }
+
         // 8. Mid-line confidence net. Native FIM is useful only when it is both short and highly
         //    likely; longer middle spans have been low-precision in edge data. Keep this deliberately
         //    conservative so re-enabled mid-line favors suppression over wrong visible text.
@@ -144,8 +149,27 @@ public final class DefaultCandidateFilter: CandidateFiltering {
         return nil
     }
 
-    private static let maxVisibleMidLineTokenCount = 8 // TYLER-MIDLINE-2026-10-22: was 2
-    private static let minimumMidLineMeanLogProbability = -1.5 // TYLER-MIDLINE-2026-10-22: was -0.5
+    static func isRepetitive(_ text: String) -> Bool {
+        let words = text.lowercased()
+            .split { $0.isWhitespace }
+            .map { $0.trimmingCharacters(in: .punctuationCharacters) }
+            .filter { !$0.isEmpty }
+        guard words.count >= 4 else { return false }
+        var run = 1
+        for i in 1..<words.count {
+            run = words[i] == words[i - 1] ? run + 1 : 1
+            if run >= 3 { return true }
+        }
+        var seen = Set<String>()
+        for i in 0...(words.count - 3) {
+            let gram = words[i..<(i + 3)].joined(separator: " ")
+            if !seen.insert(gram).inserted { return true }
+        }
+        return false
+    }
+
+    private static let maxVisibleMidLineTokenCount = 32 // TYLER-MAX-2026-10-22: was 8, orig 2
+    private static let minimumMidLineMeanLogProbability = -4.0 // TYLER-MAX-2026-10-22: was -1.5, orig -0.5
 
     static func hasLowConfidenceMidLineCandidate(
         _ candidate: CompletionCandidate,

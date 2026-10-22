@@ -247,7 +247,7 @@ final class CorrectionController {
             clear()
             return
         }
-        guard best.confidence >= 0.76 else {
+        guard best.confidence >= 0.5 else { // TYLER-MAX-2026-10-22: was 0.76
             telemetry.recordCorrectionSuppressed(reason: "lowSpellcheckConfidence")
             predictionLog.append("CORRECT word=\"\(PredictionLog.escape(best.original))\" -> SUPPRESS(lowSpellcheckConfidence)")
             clear()
@@ -284,6 +284,18 @@ final class CorrectionController {
             style: FieldFontResolver.currentStyle().overlayTextStyle,
             wordRect: wordRect
         )
+        // TYLER-AUTOFIX-2026-10-22: fix finished words on their own, like Apple autocorrect —
+        // once a space or punctuation follows the misspelled word, apply the fix without Tab.
+        if Self.wordIsFinished(best, context: context) {
+            acceptCorrection()
+        }
+    }
+
+    private static func wordIsFinished(_ candidate: CorrectionCandidate, context: TextFieldContext) -> Bool {
+        guard candidate.originalRange.container == .beforeCursor,
+              let range = candidate.originalRange.range(in: context.beforeCursor) else { return false }
+        let tail = context.beforeCursor[range.upperBound...]
+        return !tail.isEmpty && tail.allSatisfy { $0.isWhitespace || $0.isPunctuation }
     }
 
     private func clear() {

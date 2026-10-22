@@ -1217,7 +1217,7 @@ final class CompletionController {
         let base = max(0, baseMaxCompletionTokens)
         let healing = max(0, healExtraTokens)
         guard shouldUseCapsule(for: context) else { return base + healing }
-        return min(base, 3) + healing
+        return base + healing // TYLER-MAX-2026-10-22: mid-line was capped at 3 tokens
     }
 
     /// During a burst that is arriving faster than the current presentation/decode horizon, run
