@@ -107,6 +107,7 @@ final class SettingsStore {
         static let perAppLength = "KeyType.settings.perAppCompletionLength" // TYLER-PERAPP-2026-10-22
         static let historyStoreScreenshot = "KeyType.settings.historyStoreScreenshot" // TYLER-SCREENSHOT-2026-10-22
         static let historySync = "KeyType.settings.historySyncEnabled" // TYLER-SYNC-2026-10-22
+        static let suggestionTextScale = "KeyType.settings.suggestionTextScale" // TYLER-TEXTSCALE-2026-10-22
         static let historyEnabled = "KeyType.settings.historyEnabled"
         static let historyStoreScreenText = "KeyType.settings.historyStoreScreenText" // TYLER-HISTORY-2026-10-22
         static let clipboardEnabled = "KeyType.settings.clipboardEnabled"
@@ -137,6 +138,11 @@ final class SettingsStore {
     private let defaults: UserDefaults
 
     /// Persist recent typing locally (encrypted) to personalize completions. ON by default.
+    /// Multiplier on the ghost-text size (1 = match the field). Default 1.4 because matching the field was too small.
+    var suggestionTextScale: Double {
+        didSet { defaults.set(suggestionTextScale, forKey: Key.suggestionTextScale) }
+    }
+
     var historySyncEnabled: Bool {
         didSet { defaults.set(historySyncEnabled, forKey: Key.historySync) }
     }
@@ -255,6 +261,7 @@ final class SettingsStore {
         self.historyEnabled = Self.bool(defaults, forKey: Key.historyEnabled, defaultValue: true)
         self.historyStoreScreenshot = Self.bool(defaults, forKey: Key.historyStoreScreenshot, defaultValue: false)
         ScreenshotStash.shared.isEnabled = Self.bool(defaults, forKey: Key.historyStoreScreenshot, defaultValue: false)
+        self.suggestionTextScale = defaults.object(forKey: Key.suggestionTextScale) as? Double ?? 1.4
         self.historySyncEnabled = Self.bool(defaults, forKey: Key.historySync, defaultValue: false)
         self.historyStoreScreenText = Self.bool(defaults, forKey: Key.historyStoreScreenText, defaultValue: true)
         self.clipboardEnabled = Self.bool(defaults, forKey: Key.clipboardEnabled, defaultValue: true)

@@ -1394,6 +1394,7 @@ final class CompletionController {
             }
             return false
         }
+        placement.fontSizeAdjustmentFactor *= settings.suggestionTextScale // TYLER-TEXTSCALE-2026-10-22
         // Mid-line fill-in-the-middle completions overlap the existing suffix when drawn as inline
         // ghost text, so present them in a capsule below the caret instead. End-of-line and
         // end-of-paragraph (suffix begins on the next line) completions append cleanly, so they keep

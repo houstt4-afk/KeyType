@@ -33,6 +33,18 @@ struct GeneralSettingsView: View {
                     .foregroundStyle(.secondary)
             }
 
+            Section("Suggestion text size") { // TYLER-TEXTSCALE-2026-10-22
+                HStack {
+                    Slider(value: $settings.suggestionTextScale, in: 0.8...3.0, step: 0.1)
+                    Text(String(format: "%.1f×", settings.suggestionTextScale))
+                        .monospacedDigit()
+                        .frame(width: 44)
+                }
+                Text("1.0× matches the text you type. Raise it if the grey suggestion looks too small.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            }
+
             Section("macOS predictions") { // TYLER-INLINEPRED-2026-10-22
                 HStack {
                     Text(PermissionsManager.inlinePredictionDefaultEnabled() == false
