@@ -144,8 +144,8 @@ public final class DefaultCandidateFilter: CandidateFiltering {
         return nil
     }
 
-    private static let maxVisibleMidLineTokenCount = 2
-    private static let minimumMidLineMeanLogProbability = -0.5
+    private static let maxVisibleMidLineTokenCount = 8 // TYLER-MIDLINE-2026-10-22: was 2
+    private static let minimumMidLineMeanLogProbability = -1.5 // TYLER-MIDLINE-2026-10-22: was -0.5
 
     static func hasLowConfidenceMidLineCandidate(
         _ candidate: CompletionCandidate,

@@ -781,13 +781,10 @@ final class CompletionController {
             requestUptimeNanoseconds &- $0
         }
         lastGenerationRequestUptimeNanoseconds = requestUptimeNanoseconds
-        let maxCompletionTokens = Self.burstAwareCompletionTokenBudget(
-            requestedMaxCompletionTokens: configuredMaxCompletionTokens,
-            healExtraTokens: healExtraTokens,
-            elapsedSincePreviousRequestNanoseconds: elapsedSincePreviousRequest,
-            debounceNanoseconds: debounceNanoseconds,
-            lastGenerationLatencyMs: lastGenerationLatencyMs
-        )
+        // TYLER-NOBURST-2026-10-22: the burst stage cut every request made while typing to 4 tokens,
+        // so Long never showed. Always use the configured budget; typing cancels stale decodes anyway.
+        _ = elapsedSincePreviousRequest
+        let maxCompletionTokens = configuredMaxCompletionTokens
         let request = CompletionRequest(
             context: context,
             prompt: promptResult.prompt,

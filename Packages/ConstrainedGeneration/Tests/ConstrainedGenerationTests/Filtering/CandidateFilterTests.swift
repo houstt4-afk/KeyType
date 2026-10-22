@@ -354,8 +354,8 @@ final class CandidateFilterTests: XCTestCase {
         let filter = midLineEnabledFilter()
         XCTAssertEqual(
             filter.suppressionReason(
-                for: candidate(" National Museum of Racing and", tokenIDs: [1, 2, 3, 4, 5]).withLogProbability(-1.3),
-                request: request(afterCursor: "was founded in 1950.", maxCompletionTokens: 8)
+                for: candidate(" National Museum of Racing and Fame in the old", tokenIDs: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]).withLogProbability(-1.3),
+                request: request(afterCursor: "was founded in 1950.", maxCompletionTokens: 16)
             ),
             .lowConfidenceMidLine
         )
@@ -365,7 +365,7 @@ final class CandidateFilterTests: XCTestCase {
         let filter = midLineEnabledFilter()
         XCTAssertEqual(
             filter.suppressionReason(
-                for: candidate("professor", tokenIDs: [1, 2]).withLogProbability(-2.54),
+                for: candidate("professor", tokenIDs: [1, 2]).withLogProbability(-4.0),
                 request: request(afterCursor: "was appointed in 1950.")
             ),
             .lowConfidenceMidLine
