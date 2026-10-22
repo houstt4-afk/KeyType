@@ -986,7 +986,10 @@ final class CompletionController {
             .map { "\"\(PredictionLog.escape($0.text))\"" }
             .joined(separator: " | ")
 
-        guard let best = candidates.first else {
+        // TYLER-FALLTHROUGH-2026-10-22: take the best candidate that passes the safety filter, so a
+        // punctuation-only top pick (".") no longer hides a usable runner-up (" why they are small").
+        guard let best = candidates.first(where: { filter.suppressionReason(for: $0, request: request) == nil })
+                ?? candidates.first else {
             telemetry.recordSuppressed(reason: "noCandidate")
             predictionLog.append("PREDICT ctx=\"\(ctx)\" → SUPPRESS(noCandidate)")
             appendFullPromptLog(
