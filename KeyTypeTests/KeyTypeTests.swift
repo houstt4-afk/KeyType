@@ -352,7 +352,22 @@ struct KeyTypeTests {
     }
 
     @Test @MainActor func correctionSuffixWindowCapsNormalTextSuffix() {
-        #expect(CompletionController.correctionSuffixWindow(from: " are displayed, they are shown in the field") == " are displayed, they are shown ")
+        #expect(CompletionController.correctionSuffixWindow(from: " are displayed, they are shown in the field") == " are displayed, they are ")  // TYLER-CAP4-2026-10-22: code caps at 4 words (upstream test said 5)
+    }
+
+    /// TYLER-GRAMMAR-SEAM-2026-10-22: stand-in for macOS's grammar engine (which, on some Macs,
+    /// flags nothing for "These popsicles is delicious!"). Flags "is" after "popsicles" -> "are",
+    /// in the same shape NSSpellChecker reports it.
+    @MainActor static func stubbedGrammarDetector() -> SystemGrammarCorrectionDetector {
+        var detector = SystemGrammarCorrectionDetector()
+        detector.grammarCheck = { text, _ in
+            let ns = text as NSString
+            let hit = ns.range(of: "popsicles is")
+            guard hit.location != NSNotFound else { return (NSRange(location: NSNotFound, length: 0), []) }
+            let isRange = NSRange(location: hit.location + "popsicles ".count, length: 2)
+            return (NSRange(location: 0, length: ns.length), [[NSGrammarRange: NSValue(range: isRange), NSGrammarCorrections: ["are"]]])
+        }
+        return detector
     }
 
     @Test @MainActor func systemGrammarDetectorUsesNSSpellCheckerCorrections() {
@@ -363,7 +378,7 @@ struct KeyTypeTests {
             detectedLanguage: "en"
         )
 
-        let candidates = SystemGrammarCorrectionDetector().correctionCandidates(for: context)
+        let candidates = Self.stubbedGrammarDetector().correctionCandidates(for: context)
 
         #expect(candidates.contains {
             $0.original == "is"
@@ -400,7 +415,7 @@ struct KeyTypeTests {
             validation: CorrectionValidation(method: .modelScore)
         )
 
-        let candidates = SystemGrammarCorrectionDetector().candidates(afterApplying: spelling, in: context)
+        let candidates = Self.stubbedGrammarDetector().candidates(afterApplying: spelling, in: context)
 
         #expect(candidates.contains {
             $0.original == "popsiclse is"

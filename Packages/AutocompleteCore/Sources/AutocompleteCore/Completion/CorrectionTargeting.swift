@@ -224,7 +224,13 @@ public enum CorrectionTargeting {
         let after = target.suffixAfterWord
         if before.last == "_" || after.first == "_" { return true }
         if before.last == "." || before.last == "/" || before.last == "\\" { return true }
-        if after.first == "." || after.first == "/" || after.first == "\\" { return true }
+        if after.first == "/" || after.first == "\\" { return true }
+        // TYLER-SENTENCE-DOT-2026-10-22: a period after the word is code ("foo.bar") only when a word
+        // character follows it directly; a sentence-ending period ("displayd.") is ordinary prose.
+        if after.first == ".", let next = after.dropFirst().first,
+           next.isLetter || next.isNumber || next == "_" {
+            return true
+        }
         let linePrefix = before.split(whereSeparator: \.isNewline).last.map(String.init) ?? before
         let codeMarkers = ["let ", "var ", "func ", "class ", "struct ", "enum ", "import ", "return ", "const "]
         return codeMarkers.contains { linePrefix.trimmingCharacters(in: .whitespaces).hasPrefix($0) }

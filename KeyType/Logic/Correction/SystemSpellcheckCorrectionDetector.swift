@@ -104,26 +104,34 @@ struct SystemSpellcheckCorrectionDetector: CorrectionDetecting {
 
 @MainActor
 struct SystemGrammarCorrectionDetector {
+    /// TYLER-GRAMMAR-SEAM-2026-10-22: the grammar engine, swappable so tests don't depend on what
+    /// macOS's checker happens to flag on a given machine. Returns the flagged sentence range and
+    /// the `NSSpellChecker` detail dictionaries. Defaults to the real system checker.
+    typealias GrammarCheck = @MainActor (_ text: String, _ language: String?) -> (sentenceRange: NSRange, details: [[String: Any]])
+
     var maximumCandidates: Int = 5
+    var grammarCheck: GrammarCheck = SystemGrammarCorrectionDetector.systemGrammarCheck
 
-    func correctionCandidates(for context: TextFieldContext) -> [CorrectionCandidate] {
-        guard let window = Self.grammarWindow(for: context) else { return [] }
+    static func systemGrammarCheck(_ text: String, _ language: String?) -> (sentenceRange: NSRange, details: [[String: Any]]) {
         let checker = NSSpellChecker.shared
-        let language = SystemCorrectionLanguage.resolve(context.detectedLanguage, checker: checker)
         checker.automaticallyIdentifiesLanguages = (language == nil)
-
         var details: NSArray?
         let sentenceRange = checker.checkGrammar(
-            of: window.text,
+            of: text,
             startingAt: 0,
             language: language,
             wrap: false,
             inSpellDocumentWithTag: 0,
             details: &details
         )
-        guard sentenceRange.location != NSNotFound,
-              let details = details as? [[String: Any]],
-              !details.isEmpty else {
+        return (sentenceRange, (details as? [[String: Any]]) ?? [])
+    }
+
+    func correctionCandidates(for context: TextFieldContext) -> [CorrectionCandidate] {
+        guard let window = Self.grammarWindow(for: context) else { return [] }
+        let language = SystemCorrectionLanguage.resolve(context.detectedLanguage, checker: NSSpellChecker.shared)
+        let (sentenceRange, details) = grammarCheck(window.text, language)
+        guard sentenceRange.location != NSNotFound, !details.isEmpty else {
             return []
         }
 

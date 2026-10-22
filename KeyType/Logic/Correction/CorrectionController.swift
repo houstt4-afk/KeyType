@@ -132,6 +132,7 @@ final class CorrectionController {
     }
 
     static let minimumConfidence = 0.72
+    static let detectionDebounceNanoseconds: UInt64 = 120_000_000
 
     /// GEMINI-REVIEW-2026-10-22: called from the key-down tap. A keystroke makes any in-flight
     /// detection stale, so cancel it before it can show (or auto-apply) against old text.
@@ -175,6 +176,9 @@ final class CorrectionController {
             guard let self else { return }
             let started = DispatchTime.now()
             do {
+                // GEMINI-REVIEW-2026-10-22: debounce — wait out fast typing; a keystroke cancels this
+                // task (noteUserKeyDown / next snapshot) before any spellcheck work starts.
+                try await Task.sleep(nanoseconds: Self.detectionDebounceNanoseconds)
                 let detector = SystemSpellcheckCorrectionDetector()
                 let grammarDetector = SystemGrammarCorrectionDetector()
                 let detection = try await detector.detectCorrection(for: context)

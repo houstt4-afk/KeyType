@@ -63,6 +63,35 @@ enum FieldFontResolver {
     /// Reads `AXAttributedStringForRange` over a 1-character probe at the caret once, then extracts
     /// the attributes relevant to overlay alignment. Missing attributes come back nil/defaulted.
     static func currentStyle() -> ResolvedFieldStyle {
+        // GEMINI-REVIEW-2026-10-22: the attributed-string probe is the expensive AX call. Reuse the
+        // last result for the same focused element for a short window (font rarely changes mid-word).
+        let now = CFAbsoluteTimeGetCurrent()
+        let focusedElement = focusedAXElement()
+        if let focusedElement, let cached = styleCache,
+           now - cached.time < styleCacheLifetime, CFEqual(cached.element, focusedElement) {
+            return cached.style
+        }
+        let style = resolveStyle()
+        if let focusedElement {
+            styleCache = (focusedElement, style, now)
+        } else {
+            styleCache = nil
+        }
+        return style
+    }
+
+    private static let styleCacheLifetime: CFAbsoluteTime = 1.0
+    private static var styleCache: (element: AXUIElement, style: ResolvedFieldStyle, time: CFAbsoluteTime)?
+
+    private static func focusedAXElement() -> AXUIElement? {
+        var focused: AnyObject?
+        guard AXUIElementCopyAttributeValue(AXUIElementCreateSystemWide(), kAXFocusedUIElementAttribute as CFString, &focused) == .success,
+              let element = focused, CFGetTypeID(element) == AXUIElementGetTypeID()
+        else { return nil }
+        return (element as! AXUIElement)
+    }
+
+    private static func resolveStyle() -> ResolvedFieldStyle {
         guard let string = attributedProbe() else { return ResolvedFieldStyle() }
         let resolvedFont = font(from: string)
         let resolvedParagraphStyle = paragraphStyle(from: string)
