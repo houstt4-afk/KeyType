@@ -108,6 +108,77 @@ final class PersonalizationTests: XCTestCase {
         XCTAssertEqual(result, ["Newer note from this same app here."])
     }
 
+    // TYLER-SIMILAR-2026-10-22
+    func testSelectionPutsSimilarEntryFirst() {
+        let now = Date()
+        let entries = [
+            WritingHistorySample(text: "Cerebellar lesions cause ipsilateral ataxia and intention tremor.", appBundleIdentifier: "com.app", updatedAt: now.addingTimeInterval(-90_000)),
+            WritingHistorySample(text: "Grocery list: eggs, milk, bread, coffee.", appBundleIdentifier: "com.app", updatedAt: now),
+            WritingHistorySample(text: "Remember to email the professor tomorrow.", appBundleIdentifier: "com.app", updatedAt: now.addingTimeInterval(-10))
+        ]
+        let result = WritingHistorySelection.select(from: entries, query: WritingHistoryQuery(
+            bundleIdentifier: "com.app",
+            minimumCharacters: 1,
+            longestCount: 0,
+            mostRecentCount: 1,
+            crossAppRecentCount: 0,
+            currentText: "the cerebellar exam showed ataxia on the left",
+            similarCount: 1
+        ))
+        XCTAssertEqual(result.first, "Cerebellar lesions cause ipsilateral ataxia and intention tremor.")
+        XCTAssertEqual(result.count, 2, "similar pick plus the one most-recent entry")
+    }
+
+    func testSelectionSkipsSavedCopyOfCurrentField() {
+        let now = Date()
+        let typing = "the cerebellar exam showed ataxia on the left side today"
+        let entries = [
+            WritingHistorySample(text: typing + " and more words", appBundleIdentifier: "com.app", updatedAt: now),
+            WritingHistorySample(text: "Cerebellar ataxia is ipsilateral.", appBundleIdentifier: "com.app", updatedAt: now.addingTimeInterval(-500))
+        ]
+        let result = WritingHistorySelection.select(from: entries, query: WritingHistoryQuery(
+            bundleIdentifier: "com.app",
+            minimumCharacters: 1,
+            longestCount: 0,
+            mostRecentCount: 0,
+            crossAppRecentCount: 0,
+            currentText: typing,
+            similarCount: 2
+        ))
+        XCTAssertEqual(result, ["Cerebellar ataxia is ipsilateral."])
+    }
+
+    func testRicherFieldsRoundTripThroughEncryptedStore() throws {
+        let (store, url) = try makeTempStore()
+        defer { try? FileManager.default.removeItem(at: url) }
+        store.record(WritingHistorySample(
+            text: "A sample long enough to be stored in history.",
+            appBundleIdentifier: "com.app",
+            selectedText: "sel",
+            textAfterCursor: "after",
+            windowTitle: "Notes",
+            screenText: "screen words",
+            screenshotData: Data([1, 2, 3])
+        ))
+        let rows = store.samplesUpdated(after: .distantPast, limit: 10)
+        XCTAssertEqual(rows.count, 1)
+        XCTAssertEqual(rows.first?.windowTitle, "Notes")
+        XCTAssertEqual(rows.first?.screenText, "screen words")
+        XCTAssertEqual(rows.first?.screenshotData, Data([1, 2, 3]))
+    }
+
+    func testDailyStatsCountsWordsAndFull() {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("kt-stats-\(UUID().uuidString).json")
+        defer { try? FileManager.default.removeItem(at: url) }
+        let stats = DailyCompletionStats(url: url)
+        stats.recordAcceptance(characters: 5, isFull: false)
+        stats.recordAcceptance(characters: 20, isFull: true)
+        let today = stats.load()[DailyCompletionStats.dayKey()]
+        XCTAssertEqual(today?.shortAccepted, 1)
+        XCTAssertEqual(today?.longAccepted, 1)
+        XCTAssertEqual(today?.characters, 25)
+    }
+
     // MARK: - Telemetry
 
     func testTelemetryRatesAndPercentiles() {

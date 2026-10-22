@@ -67,6 +67,9 @@ public struct WritingHistoryQuery: Equatable {
     public var crossAppRecentCount: Int
     public var tokenBudget: Int
     public var sameAppOnly: Bool
+    /// TYLER-SIMILAR-2026-10-22: text near the cursor; entries sharing its words are picked first.
+    public var currentText: String?
+    public var similarCount: Int
 
     public init(
         bundleIdentifier: String? = nil,
@@ -79,7 +82,9 @@ public struct WritingHistoryQuery: Equatable {
         mostRecentCount: Int = 4,
         crossAppRecentCount: Int = 2,
         tokenBudget: Int = 256,
-        sameAppOnly: Bool = false
+        sameAppOnly: Bool = false,
+        currentText: String? = nil,
+        similarCount: Int = 3
     ) {
         self.bundleIdentifier = bundleIdentifier
         self.domain = domain
@@ -92,6 +97,8 @@ public struct WritingHistoryQuery: Equatable {
         self.crossAppRecentCount = crossAppRecentCount
         self.tokenBudget = tokenBudget
         self.sameAppOnly = sameAppOnly
+        self.currentText = currentText
+        self.similarCount = similarCount
     }
 }
 

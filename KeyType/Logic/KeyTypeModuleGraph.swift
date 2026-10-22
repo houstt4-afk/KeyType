@@ -130,7 +130,8 @@ enum KeyTypeModuleGraph {
             bundleIdentifier: context.target.bundleIdentifier,
             domain: context.target.domain,
             typingContext: context.typingContext,
-            language: context.detectedLanguage
+            language: context.detectedLanguage,
+            currentText: String(context.beforeCursor.suffix(400)) // TYLER-SIMILAR-2026-10-22
         )
         let samples = history.samples(for: query)
         return builder.buildPrompt(

@@ -252,7 +252,7 @@ public final class PersistentWritingHistoryStore: WritingHistoryStoring, @unchec
                 // Hard upper bound on rows pulled into memory before mixing.
                 return try request
                     .order(Column("updatedAt").desc)
-                    .limit(200)
+                    .limit(query.currentText == nil ? 200 : 2000) // TYLER-SIMILAR-2026-10-22
                     .fetchAll(db)
             }
         } catch {
@@ -288,6 +288,26 @@ enum WritingHistorySelection {
             }
         }
 
+        // TYLER-SIMILAR-2026-10-22: entries that share words with the text near the cursor go first,
+        // so the earliest-selected (budget-protected) samples are the most relevant ones.
+        if let current = query.currentText, query.similarCount > 0 {
+            let words = similarityWords(current)
+            if !words.isEmpty {
+                // Skip the saved copy of the field being typed right now (it would echo itself).
+                let probe = String(current.suffix(60)).trimmingCharacters(in: .whitespacesAndNewlines)
+                var scored: [(sample: WritingHistorySample, score: Double)] = []
+                for entry in candidates {
+                    if probe.count >= 12, entry.text.contains(probe) { continue }
+                    if current.contains(entry.text) { continue }
+                    let score = similarityScore(similarityWords(entry.text), against: words)
+                    if score > 0 { scored.append((entry, score)) }
+                }
+                scored.sort { a, b in
+                    a.score != b.score ? a.score > b.score : a.sample.updatedAt > b.sample.updatedAt
+                }
+                take(scored.map { $0.sample }, upTo: query.similarCount)
+            }
+        }
         take(sameApp.sorted { $0.updatedAt > $1.updatedAt }, upTo: query.mostRecentCount)
         take(sameApp.sorted { $0.text.count > $1.text.count }, upTo: query.longestCount)
         if !query.sameAppOnly {
@@ -305,6 +325,25 @@ enum WritingHistorySelection {
             tokens += cost
         }
         return result
+    }
+
+    private static let stopWords: Set<String> = [
+        "the", "and", "for", "that", "this", "with", "you", "are", "was", "but", "not", "have",
+        "has", "had", "its", "it's", "they", "them", "then", "than", "there", "what", "when", "will",
+        "would", "can", "could", "from", "your", "about", "just", "into", "also", "our", "his", "her"
+    ]
+
+    /// Lowercased content words of 3+ letters, minus common filler words.
+    static func similarityWords(_ text: String) -> Set<String> {
+        let parts = text.lowercased().split { !($0.isLetter || $0.isNumber || $0 == "'") }
+        return Set(parts.map(String.init).filter { $0.count >= 3 && !stopWords.contains($0) })
+    }
+
+    /// Shared-word count, lightly normalised so long entries don't win just by being long.
+    static func similarityScore(_ entry: Set<String>, against current: Set<String>) -> Double {
+        let shared = entry.intersection(current).count
+        guard shared > 0 else { return 0 }
+        return Double(shared) / (1.0 + log(Double(max(entry.count, 1))))
     }
 }
 

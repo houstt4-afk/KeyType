@@ -1266,7 +1266,8 @@ final class CompletionController {
             bundleIdentifier: context.target.bundleIdentifier,
             domain: context.target.domain,
             typingContext: context.typingContext,
-            language: context.detectedLanguage
+            language: context.detectedLanguage,
+            currentText: String(context.beforeCursor.suffix(400)) // TYLER-SIMILAR-2026-10-22
         )
         let previousUserInputs = settings.historyEnabled
             ? history.samples(for: query)
